@@ -91,17 +91,21 @@ function addObjective!(p::LPProblem,m::JuMPModel)
     sign = m.objSense == :Min ? 1 : -1
     affobj = m.obj.aff
     @inbounds for (i,var) in enumerate(affobj.vars)
-        @assert var.m == m "Variable not owned by model present in objective"
-        if haskey(p.posVars,var)
-            p.c[p.posVars[var]] += sign*affobj.coeffs[i]
-        elseif haskey(p.negVars,var)
-            p.c[p.negVars[var]] -= sign*affobj.coeffs[i]
-        elseif haskey(p.freeVars,var)
-            p.c[p.freeVars[var][1]] += sign*affobj.coeffs[i]
-            p.c[p.freeVars[var][2]] -= sign*affobj.coeffs[i]
-        else
-            error("Variable $var has not been parsed")
-        end
+        addToObjective!(p,m,var,sign*affobj.coeffs[i])
+    end
+end
+
+function addToObjective!(p::LPProblem,m::JuMPModel,var::JuMPVariable,coeff::Real)
+    #@assert var.m == m "Variable not owned by model present in objective"
+    if haskey(p.posVars,var)
+        p.c[p.posVars[var]] += coeff
+    elseif haskey(p.negVars,var)
+        p.c[p.negVars[var]] -= coeff
+    elseif haskey(p.freeVars,var)
+        p.c[p.freeVars[var][1]] += coeff
+        p.c[p.freeVars[var][2]] -= coeff
+    else
+        error("Variable $var has not been parsed")
     end
 end
 
@@ -204,16 +208,16 @@ function (solver::LPSolver)()
     lp = solver.lp
     basis = collect((lp.numCols+1):(lp.numCols+lp.numSlacks))
 
-    try
-        x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
+    x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
+    solver.status = status
 
+    if status == :Optimal
         solver.x = x
         solver.obj = obj
         solver.λ = λ
-        solver.status = status
         updateSolution(solver)
-    catch
-        solver.status = :NotSolved
+    else
+        error("LP could not be solved, returned status: $status")
     end
 
     return nothing

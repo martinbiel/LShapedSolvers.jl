@@ -22,6 +22,7 @@ export
     updateSolution
 
 typealias JuMPModel JuMP.Model
+typealias JuMPVariable JuMP.Variable
 
 # Include files
 include("LPSolver.jl")
