@@ -33,11 +33,13 @@ type LShapedSolver
     θ
     numCuts::Int
 
+    status
+
     function LShapedSolver(m::JuMPModel)
         @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
         lshaped = new(m)
 
-        lshaped.masterModel = extractMaster(m)
+        lshaped.masterModel = extractMaster!(m)
         lshaped.θ = @variable(lshaped.masterModel,θ)
 
         p = LPProblem(lshaped.masterModel)
@@ -58,12 +60,18 @@ type LShapedSolver
     end
 end
 
-function extractMaster(src::JuMPModel)
+function extractMaster!(src::JuMPModel)
     @assert haskey(src.ext,:Stochastic) "The provided model is not structured"
 
     # Minimal copy of master part of structured problem
 
     master = Model()
+
+    if src.colNames[1] == ""
+        for varFamily in src.dictList
+            JuMP.fill_var_names(JuMP.REPLMode,src.colNames,varFamily)
+        end
+    end
 
     # Objective
     master.obj = copy(src.obj, master)
@@ -111,12 +119,6 @@ function updateMasterSolution!(lshaped::LShapedSolver)
 end
 
 function addCut!(lshaped::LShapedSolver,E::AbstractVector,e::Real)
-    x = lshaped.structuredModel.colVal
-    w = e-E⋅x
-
-    if w <= getvalue(lshaped.θ)+eps()
-        return true
-    end
     m = lshaped.masterModel
     @constraint(lshaped.masterModel,sum(E[i]*Variable(m,i)
                                         for i = 1:(m.numCols-1)) + Variable(m,m.numCols) >= e)
@@ -151,13 +153,26 @@ function (lshaped::LShapedSolver)()
             E += π[i]*Es
             e += π[i]*es
         end
-        stop = addCut!(lshaped,E,e)
 
-        if stop
+        x = lshaped.structuredModel.colVal
+        w = e-E⋅x
+
+        if w <= getvalue(lshaped.θ)+eps()
             # Optimal
-            println("OPTIMAL")
+            println("======================")
+            println("Current θ: ", getvalue(lshaped.θ))
+            println("Current w: ", w)
+            println("Optimal!")
             break
         end
+
+        addCut!(lshaped,E,e)
+
+        println("======================")
+        println("Current θ: ", getvalue(lshaped.θ))
+        println("Current w: ", w)
+        println("Added cut: ", lshaped.masterModel.linconstr[end])
+        println("======================")
 
         # Resolve master
         lshaped.masterSolver()
