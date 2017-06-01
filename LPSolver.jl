@@ -208,16 +208,18 @@ function (solver::LPSolver)()
     lp = solver.lp
     basis = collect((lp.numCols+1):(lp.numCols+lp.numSlacks))
 
-    x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
-    solver.status = status
+    #x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
+    sol = linprog(lp.c, lp.A, fill('=',lp.numRows), lp.b, ClpSolver())
 
-    if status == :Optimal
-        solver.x = x
-        solver.obj = obj
-        solver.λ = λ
+    solver.status = sol.status
+
+    if solver.status == :Optimal
+        solver.x = sol.sol
+        solver.obj = sol.objval
+        solver.λ = sol.attrs[:lambda]
         updateSolution(solver)
     else
-        error("LP could not be solved, returned status: $status")
+        error(string("LP could not be solved, returned status: ",solver.status))
     end
 
     return nothing

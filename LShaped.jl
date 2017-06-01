@@ -9,6 +9,8 @@ import Base.show
 # Packages
 using JuMP
 using StructJuMP
+using Clp
+using MathProgBase.linprog
 
 export
     LShapedSolver,

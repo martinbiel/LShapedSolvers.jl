@@ -60,6 +60,18 @@ type LShapedSolver
     end
 end
 
+function Base.show(io::IO, solver::LShapedSolver)
+    if get(io, :multiline, false)
+        print(io, "LShapedSolver")
+    else
+        print(io,"LShapedSolver")
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", solver::LShapedSolver)
+    show(io,solver)
+end
+
 function extractMaster!(src::JuMPModel)
     @assert haskey(src.ext,:Stochastic) "The provided model is not structured"
 
@@ -124,12 +136,16 @@ function addCut!(lshaped::LShapedSolver,E::AbstractVector,e::Real)
                                         for i = 1:(m.numCols-1)) + Variable(m,m.numCols) >= e)
     addRows!(lshaped.masterProblem,m)
 
+    lshaped.numCuts += 1
+
     return false
 end
 
 function (lshaped::LShapedSolver)()
+    println("Starting L-Shaped procedure\n")
     π = getprobability(lshaped.structuredModel)
     # Initial solve of master problem
+    println("Initial solve of master")
     lshaped.masterSolver()
     updateMasterSolution!(lshaped)
 
@@ -137,15 +153,17 @@ function (lshaped::LShapedSolver)()
     map(updateSubProblem!,lshaped.subProblems)
 
     # Can now prepare master for future cuts
+    println("Prepare master problem\n")
     prepareMaster!(lshaped)
 
     while true
         # Solve sub problems
-        for subprob in lshaped.subProblems
+        for (i,subprob) in enumerate(lshaped.subProblems)
+            println("Solving subproblem: ",i)
             subprob.solver()
         end
 
-        E = e = 0.0
+        E = zeros(lshaped.structuredModel.numCols)
         e = 0.0
 
         for i = 1:lshaped.numScenarios
@@ -163,6 +181,7 @@ function (lshaped::LShapedSolver)()
             println("Current θ: ", getvalue(lshaped.θ))
             println("Current w: ", w)
             println("Optimal!")
+            println("======================")
             break
         end
 
@@ -208,15 +227,24 @@ end
 function updateSubProblem!(subprob::SubProblem)
     @assert status(subprob.parent.masterSolver) == :Optimal
 
+    rhsupdate = Dict{Int64,Float64}()
     for (i,x,coeff) in subprob.masterTerms
+        if !haskey(rhsupdate,i)
+            rhsupdate[i] = 0
+        end
+        rhsupdate[i] += coeff*getvalue(x)
+    end
+
+    for (i,rhs) in rhsupdate
         constr = subprob.model.linconstr[i]
-        rhs = coeff*getvalue(x)
-        if constr.lb == -Inf
+        if constr.lb == constr.ub
+            rhs += constr.ub
+        elseif constr.lb == -Inf
             rhs += constr.ub
         elseif constr.ub == Inf
             rhs += constr.lb
         else
-            error("Can only handle one sided constraints")
+            error(string("Can only handle equality constraints or one-sided inequality constraints: ", constr))
         end
         subprob.problem.b[i] = rhs
     end
