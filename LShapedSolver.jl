@@ -30,7 +30,7 @@ type LShapedSolver
     subProblems::Vector{SubProblem}
 
     # Cuts
-    θ
+    θs
     numCuts::Int
 
     status
@@ -39,14 +39,15 @@ type LShapedSolver
         @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
         lshaped = new(m)
 
+        n = num_scenarios(m)
+
         lshaped.masterModel = extractMaster!(m)
-        lshaped.θ = @variable(lshaped.masterModel,θ)
+        lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n])
 
         p = LPProblem(lshaped.masterModel)
         lshaped.masterProblem = p
         lshaped.masterSolver = LPSolver(p)
 
-        n = num_scenarios(m)
         lshaped.numScenarios = n
         lshaped.subProblems = Vector{SubProblem}()
         for i = 1:n
@@ -128,6 +129,26 @@ function updateMasterSolution!(lshaped::LShapedSolver)
     for i in 1:lshaped.structuredModel.numCols
         lshaped.structuredModel.colVal[i] = lshaped.masterModel.colVal[i]
     end
+end
+
+function addCut!(lshaped::LShapedSolver,subprob::SubProblem)
+
+    substatus = status(subprob.solver)
+
+    if substatus == :Optimal
+        m = lshaped.masterModel
+        E,e = getOptimalityCut(subprob)
+        @constraint(lshaped.masterModel,sum(E[i]*Variable(m,i)
+                                            for i = 1:(m.numCols-1)) + Variable(m,m.numCols) >= e)
+        addRows!(lshaped.masterProblem,m)
+        lshaped.numCuts += 1
+        return true
+    elseif substatus == :Infeasible
+
+        return true
+    end
+
+    return false
 end
 
 function addCut!(lshaped::LShapedSolver,E::AbstractVector,e::Real)
@@ -250,8 +271,19 @@ function updateSubProblem!(subprob::SubProblem)
     end
 end
 
-function getCut(subprob::SubProblem)
+function getOptimalityCut(subprob::SubProblem)
     @assert status(subprob.solver) == :Optimal
+    E = zeros(subprob.parent.structuredModel.numCols)
+    e = subprob.solver.λ⋅subprob.h
+    for (i,x,coeff) in subprob.masterTerms
+        E[x.col] += subprob.solver.λ[i]*(-coeff)
+    end
+
+    return E, e
+end
+
+function getFeasibilityCut(subprob::SubProblem)
+    @assert status(subprob.solver) == :Infeasible
     E = zeros(subprob.parent.structuredModel.numCols)
     e = subprob.solver.λ⋅subprob.h
     for (i,x,coeff) in subprob.masterTerms

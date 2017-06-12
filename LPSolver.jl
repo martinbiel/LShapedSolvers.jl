@@ -218,6 +218,8 @@ function (solver::LPSolver)()
         solver.obj = sol.objval
         solver.λ = sol.attrs[:lambda]
         updateSolution(solver)
+    elseif solver.status == :Infeasible
+
     else
         error(string("LP could not be solved, returned status: ",solver.status))
     end
