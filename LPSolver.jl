@@ -219,7 +219,9 @@ function (solver::LPSolver)()
         solver.λ = sol.attrs[:lambda]
         updateSolution(solver)
     elseif solver.status == :Infeasible
-
+        solver.x = []
+        solver.obj = Inf
+        solver.λ = sol.attrs[:infeasibilityray]
     else
         error(string("LP could not be solved, returned status: ",solver.status))
     end
