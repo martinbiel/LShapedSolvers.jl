@@ -1,11 +1,12 @@
 # LP problem, with assumed form
 # min c^Tx
-# s.t Ax = b
-#     x >= 0
-type LPProblem
+# s.t lb <= Ax <= ub
+#     l <= x <= u
+mutable struct LPProblem
     c::AbstractVector
-    b::AbstractVector
     A::SparseMatrixCSC
+    l::AbstractVector
+    u::AbstractVector
 
     numRows::Int
     numCols::Int
@@ -14,9 +15,6 @@ type LPProblem
     J::AbstractVector
     V::AbstractVector
 
-    posVars
-    negVars
-    freeVars
     numSlacks::Int
 
     function LPProblem(m::JuMPModel)
@@ -26,13 +24,27 @@ type LPProblem
         loadStandardForm!(prob,m)
         return prob
     end
+
+    function LPProblem(A::SparseMatrixCSC,
+                       l::AbstractVector,
+                       u::AbstractVector,
+                       c::AbstractVector,
+                       lb::AbstractVector,
+                       ub::AbstractVector,
+                       sense::Symbol)
+        prob = new()
+        prob.numSlacks = 0
+        loadStandardForm!(prob,m)
+        return prob
+    end
 end
 
 function loadStandardForm!(p::LPProblem,m::JuMPModel)
     p.numRows = length(m.linconstr)
+    p.numCols = m.numCols
 
-    # Parse variables
-    parseVariables!(p,m)
+    p.l = copy(m.colLower)
+    p.u = copy(m.colUpper)
 
     # Build objective
     # ==============================
@@ -40,8 +52,6 @@ function loadStandardForm!(p::LPProblem,m::JuMPModel)
 
     # Build constraints
     # ==============================
-    # Bound vector
-    p.b = zeros(0)
     # Non-zero row indices
     p.I = Vector{Int}()
     # Non-zero column indices
@@ -56,33 +66,45 @@ function loadStandardForm!(p::LPProblem,m::JuMPModel)
     p.A = sparse(p.I,p.J,p.V,p.numRows,p.numCols+p.numSlacks)
 end
 
-function parseVariables!(p::LPProblem,m::JuMPModel)
-    p.numCols = 0
+function loadStandardForm!(p::LPProblem,
+                           A::SparseMatrixCSC,
+                           l::AbstractVector,
+                           u::AbstractVector,
+                           c::AbstractVector,
+                           lb::AbstractVector,
+                           ub::AbstractVector,
+                           sense::Symbol)
+    p.numRows = size(A,1)
+    p.numCols = size(A,2)
 
-    p.posVars = Dict{Any,Int}()
-    p.negVars = Dict{Any,Int}()
-    p.freeVars = Dict{Any,Tuple{Int,Int}}()
+    p.l = copy(l)
+    p.u = copy(u)
 
-    j = 1
-    for i = 1:m.numCols
-        if m.colLower[i] == -Inf && m.colUpper[i] == Inf
-            # Free variable
-            p.freeVars[Variable(m,i)] = (j,j+1)
-            j += 2
-            p.numCols += 2
-        elseif m.colLower[i] == -Inf && m.colUpper[i] == 0.0
-            # Negative variable
-            p.negVars[Variable(m,i)] = j
-            j += 1
-            p.numCols += 1
-        elseif m.colLower[i] == 0.0 && m.colUpper[i] == Inf
-            # Positive variable
-            p.posVars[Variable(m,i)] = j
-            j += 1
-            p.numCols += 1
-        else
-            error("Can only handle simple variable bounds")
-        end
+    # Build objective
+    # ==============================
+    p.c = sense == :Min ? copy(c) : -copy(c)
+
+    # Build constraints
+    # ==============================
+    # Non-zero row indices
+    p.I = Vector{Int}()
+    # Non-zero column indices
+    p.J = Vector{Int}()
+    # Non-zero values
+    p.V = Vector{Float64}()
+
+    p.A = [A I]
+
+    p.I,p,J,p.V = findnz(p.A)
+
+    for i = 1:length(lb)
+        p.numSlacks += 1
+        push!(p.l,-ub[i])
+        push!(p.u,-lb[i])
+        push!(p.I,i)
+        push!(p.J,p.numCols+p.numSlacks)
+        push!(p.V,1)
+        push!(p.c,0)
     end
 end
 
@@ -96,17 +118,7 @@ function addObjective!(p::LPProblem,m::JuMPModel)
 end
 
 function addToObjective!(p::LPProblem,m::JuMPModel,var::JuMPVariable,coeff::Real)
-    #@assert var.m == m "Variable not owned by model present in objective"
-    if haskey(p.posVars,var)
-        p.c[p.posVars[var]] += coeff
-    elseif haskey(p.negVars,var)
-        p.c[p.negVars[var]] -= coeff
-    elseif haskey(p.freeVars,var)
-        p.c[p.freeVars[var][1]] += coeff
-        p.c[p.freeVars[var][2]] -= coeff
-    else
-        error("Variable $var has not been parsed")
-    end
+    p.c[var.col] += coeff
 end
 
 function addRow!(p::LPProblem,m::JuMPModel,i::Int)
@@ -117,45 +129,36 @@ function addRow!(p::LPProblem,m::JuMPModel,i::Int)
     @inbounds for (j,var) = enumerate(vars)
         if var.m == m
             push!(p.I,i)
-            if haskey(p.posVars,var)
-                push!(p.J,p.posVars[var])
-                push!(p.V,coeffs[j])
-            elseif haskey(p.negVars,var)
-                push!(p.J,p.negVars[j])
-                push!(p.V,-coeffs[j])
-            elseif haskey(p.freeVars,var)
-                push!(p.J,p.freeVars[var][1])
-                push!(p.V,coeffs[j])
-                push!(p.I,i)
-                push!(p.J,p.freeVars[var][2])
-                push!(p.V,-coeffs[j])
-            else
-                error("Variable $var has not been parsed")
-            end
+            push!(p.J,var.col)
+            push!(p.V,coeffs[j])
         end
     end
 
-    if constr.lb != constr.ub
-        p.numSlacks += 1
-        if constr.lb == -Inf
-            # upper bound
-            push!(p.I,i)
-            push!(p.J,p.numCols+p.numSlacks)
-            push!(p.V,1)
-            push!(p.b,constr.ub)
-        elseif constr.ub == Inf
-            # lower bound
-            push!(p.I,i)
-            push!(p.J,p.numCols+p.numSlacks)
-            push!(p.V,-1)
-            push!(p.b,constr.lb)
-        else
-            error("Can only standardize one sided constraints")
-        end
-        push!(p.c,0)
-    else
-        push!(p.b,constr.ub)
+    p.numSlacks += 1
+    push!(p.l,-constr.ub)
+    push!(p.u,-constr.lb)
+    push!(p.I,i)
+    push!(p.J,p.numCols+p.numSlacks)
+    push!(p.V,1)
+    push!(p.c,0)
+end
+
+function addRow!(p::LPProblem,a::AbstractVector,lb::Real,ub::Real,i::Int)
+
+    for (j,coeff) in enumerate(a)
+        push!(p.I,i)
+        push!(p.J,j)
+        push!(p.V,coeff)
     end
+
+    # Slack
+    p.numSlacks += 1
+    push!(p.l,-ub)
+    push!(p.u,-lb)
+    push!(p.I,i)
+    push!(p.J,p.numCols+p.numSlacks)
+    push!(p.V,1)
+    push!(p.c,0)
 end
 
 function addCols!(p::LPProblem,m::JuMPModel)
@@ -184,12 +187,14 @@ function addRows!(p::LPProblem,m::JuMPModel)
     p.A = sparse(p.I,p.J,p.V,p.numRows,p.numCols+p.numSlacks)
 end
 
-type LPSolver
+mutable struct LPSolver
     lp::LPProblem
 
     obj::Real         # Objective
     x::AbstractVector # Primal variables
-    λ::AbstractVector # Dual variables
+    λ::AbstractVector # Constraint duals
+    v::AbstractVector # Variable duals (lower bound)
+    w::AbstractVector # Variable duals (upper bound)
 
     status::Symbol
 
@@ -198,7 +203,11 @@ type LPSolver
 
         solver.obj = -Inf
         solver.x = similar(lp.c)
-        solver.λ = similar(lp.b)
+        solver.λ = zeros(size(lp.A,1))
+        solver.v = zero(lp.c)
+        solver.w = zero(lp.c)
+
+        solver.status = :NotSolved
 
         return solver
     end
@@ -208,8 +217,9 @@ function (solver::LPSolver)()
     lp = solver.lp
     basis = collect((lp.numCols+1):(lp.numCols+lp.numSlacks))
 
+    env = Gurobi.Env()
     #x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
-    sol = linprog(lp.c, lp.A, fill('=',lp.numRows), lp.b, ClpSolver())
+    sol = linprog(lp.c, lp.A, fill('=',lp.numRows), 0.0, lp.l, lp.u, GurobiSolver(env, OutputFlag=0))
 
     solver.status = sol.status
 
@@ -217,11 +227,12 @@ function (solver::LPSolver)()
         solver.x = sol.sol
         solver.obj = sol.objval
         solver.λ = sol.attrs[:lambda]
-        updateSolution(solver)
+        solver.v,solver.w = getVariableDuals(solver,sol.attrs[:redcost])
     elseif solver.status == :Infeasible
-        solver.x = []
         solver.obj = Inf
         solver.λ = sol.attrs[:infeasibilityray]
+    elseif solver.status == :Unbounded
+        solver.obj = -Inf
     else
         error(string("LP could not be solved, returned status: ",solver.status))
     end
@@ -229,23 +240,37 @@ function (solver::LPSolver)()
     return nothing
 end
 
+function getVariableDuals(solver::LPSolver,d::AbstractVector)
+    l = solver.lp.l
+    v = zero(l)
+    u = solver.lp.u
+    w = zero(u)
+    for i = 1:length(l)
+        if l[i] > -Inf
+            if u[i] == Inf
+                v[i] = d[i]
+            else
+                if solver.x[i] == l[i]
+                    v[i] = d[i]
+                elseif solver.x[i] == u[i]
+                    w[i] = d[i]
+                else
+                    continue
+                end
+            end
+        else
+            if u[i] < Inf
+                w[i] = d[i]
+            end
+        end
+    end
+    return v,w
+end
+
 status(solver::LPSolver) = solver.status
 
-function updateSolution(solver::LPSolver)
+function updateSolution(solver::LPSolver,model::JuMPModel)
     @assert status(solver) == :Optimal "Should not update unoptimized result"
-    lp = solver.lp
-
-    for (var,idx) in lp.posVars
-        setvalue(var,solver.x[idx])
-    end
-
-    for (var,idx) in lp.negVars
-        setvalue(var,-solver.x[idx])
-    end
-
-    for (var,idxs) in lp.freeVars
-        i = idxs[1]
-        j = idxs[2]
-        setvalue(var,solver.x[i]-solver.x[j])
-    end
+    numCols = solver.lp.numCols
+    model.colVal = solver.x[1:numCols]
 end

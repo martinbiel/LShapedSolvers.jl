@@ -1,4 +1,4 @@
-type SubProblem
+mutable struct SubProblem
     model::JuMPModel
     id::Integer
     π::Float64
@@ -6,7 +6,10 @@ type SubProblem
     solver::LPSolver
     parent # Parent LShaped
 
-    h
+    hl
+    hli
+    hu
+    hui
     masterTerms
 
     function SubProblem(m::JuMPModel,id::Integer,π::Float64)
@@ -15,13 +18,16 @@ type SubProblem
         p = LPProblem(m)
         subprob.problem = p
         subprob.solver = LPSolver(p)
-        subprob.h = copy(p.b)
+        subprob.hl = copy(p.l)
+        subprob.hli = find(!isinf,subprob.hl)
+        subprob.hu = copy(p.u)
+        subprob.hui = find(!isinf,subprob.hu)
 
         return subprob
     end
 end
 
-type LShapedSolver
+mutable struct LShapedSolver
     structuredModel::JuMPModel
 
     masterModel::JuMPModel
@@ -44,15 +50,18 @@ type LShapedSolver
         lshaped = new(m)
 
         n = num_scenarios(m)
+        lshaped.numScenarios = n
 
         lshaped.masterModel = extractMaster!(m)
         lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
+        @constraint(lshaped.masterModel,thetabound[i = 1:n],θ[i] >= -1e19)
 
         p = LPProblem(lshaped.masterModel)
         lshaped.masterProblem = p
         lshaped.masterSolver = LPSolver(p)
 
-        lshaped.numScenarios = n
+        prepareMaster!(lshaped)
+
         lshaped.subProblems = Vector{SubProblem}()
         π = getprobability(lshaped.structuredModel)
         for i = 1:n
@@ -63,7 +72,7 @@ type LShapedSolver
         lshaped.numOptimalityCuts = 0
         lshaped.numFeasibilityCuts = 0
 
-        lshaped.τ = 1e-3
+        lshaped.τ = 1e-6
 
         return lshaped
     end
@@ -109,12 +118,6 @@ function extractMaster!(src::JuMPModel)
     master.colCat = src.colCat[:]
     master.colVal = src.colVal[:]
 
-    # Variable dicts
-    master.varDict = Dict{Symbol,Any}()
-    for (symb,v) in src.varDict
-        master.varDict[symb] = copy(v, master)
-    end
-
     return master
 end
 
@@ -149,8 +152,10 @@ function addCut!(lshaped::LShapedSolver,subprob::SubProblem)
 
         E,e = getOptimalityCut(subprob)
         w = e-E⋅x
+        θ = getvalue(lshaped.θs[subprob.id])
+        τ = lshaped.τ
 
-        if w <= getvalue(lshaped.θs[subprob.id]) + lshaped.τ
+        if abs((w-θ)/θ) <= τ
             # Optimal with respect to this subproblem
             println("θ",subprob.id,": ",getvalue(lshaped.θs[subprob.id]))
             println("w",subprob.id,": ", w)
@@ -165,7 +170,11 @@ function addCut!(lshaped::LShapedSolver,subprob::SubProblem)
         lshaped.numOptimalityCuts += 1
         println("θ",subprob.id,": ",getvalue(lshaped.θs[subprob.id]))
         println("w",subprob.id,": ", w)
-        println("Added Optimality Cut: ", lshaped.masterModel.linconstr[end])
+        if length(lshaped.masterModel.linconstr[end].terms.coeffs) > 10
+            println("Added Optimality Cut")
+        else
+            println("Added Optimality Cut: ", lshaped.masterModel.linconstr[end])
+        end
         return true
     elseif substatus == :Infeasible
         D,d = getFeasibilityCut(subprob)
@@ -184,7 +193,11 @@ function addCut!(lshaped::LShapedSolver,subprob::SubProblem)
         addRows!(lshaped.masterProblem,m)
         lshaped.numFeasibilityCuts += 1
         println("Subproblem ",subprob.id, " is infeasible")
-        println("Added Feasibility Cut: ", lshaped.masterModel.linconstr[end])
+        if length(lshaped.masterModel.linconstr[end].terms.coeffs) > 10
+            println("Added Feasibility Cut")
+        else
+            println("Added Feasibility Cut: ", lshaped.masterModel.linconstr[end])
+        end
         return true
     else
         warn("Subproblem ",subprob,id," was not solved")
@@ -193,24 +206,18 @@ function addCut!(lshaped::LShapedSolver,subprob::SubProblem)
     return false
 end
 
-function addCut!(lshaped::LShapedSolver,E::AbstractVector,e::Real)
-    m = lshaped.masterModel
-    @constraint(lshaped.masterModel,sum(E[i]*Variable(m,i)
-                                        for i = 1:(m.numCols-1)) + Variable(m,m.numCols) >= e)
-    addRows!(lshaped.masterProblem,m)
-
-    lshaped.numCuts += 1
-
-    return false
-end
-
 function (lshaped::LShapedSolver)()
     println("Starting L-Shaped procedure\n")
+    println("======================")
     # Initial solve of master problem
     println("Initial solve of master")
     lshaped.masterSolver()
-    for i in 1:lshaped.numScenarios
-        setvalue(lshaped.θs[i],-Inf)
+    updateSolution(lshaped.masterSolver,lshaped.masterModel)
+    lshaped.status = status(lshaped.masterSolver)
+    if lshaped.status == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
     end
     updateMasterSolution!(lshaped)
 
@@ -218,7 +225,6 @@ function (lshaped::LShapedSolver)()
     map(updateSubProblem!,lshaped.subProblems)
 
     addedCut = false
-    masterPrepared = false
 
     println("Main loop")
     println("======================")
@@ -228,59 +234,35 @@ function (lshaped::LShapedSolver)()
         for subprob in lshaped.subProblems
             println("Solving subproblem: ",subprob.id)
             subprob.solver()
+            updateSolution(subprob.solver,subprob.model)
+            lshaped.status = status(subprob.solver)
+            if lshaped.status == :Unbounded
+                println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
+                println("======================")
+                return
+            end
             addedCut |= addCut!(lshaped,subprob)
         end
 
         if !addedCut
             # Optimal
+            lshaped.status = :Optimal
             println("Optimal!")
             println("======================")
             break
         end
 
-        # E = zeros(lshaped.structuredModel.numCols)
-        # e = 0.0
-
-        # for i = 1:lshaped.numScenarios
-        #     Es,es = getCut(lshaped.subProblems[i])
-        #     E += π[i]*Es
-        #     e += π[i]*es
-        # end
-
-        # x = lshaped.structuredModel.colVal
-        # w = e-E⋅x
-
-        # if w <= getvalue(lshaped.θ)+eps()
-        #     # Optimal
-        #     println("======================")
-        #     println("Current θ: ", getvalue(lshaped.θ))
-        #     println("Current w: ", w)
-        #     println("Optimal!")
-        #     println("======================")
-        #     break
-        # end
-
-        # addCut!(lshaped,E,e)
-
-        # println("======================")
-        # println("Current θ: ", getvalue(lshaped.θ))
-        # println("Current w: ", w)
-        # println("Added cut: ", lshaped.masterModel.linconstr[end])
-        # println("======================")
-
-        if !masterPrepared && lshaped.numOptimalityCuts > 0
-            # Can now prepare master objective
-            prepareMaster!(lshaped)
-            masterPrepared = true
-        end
-
         # Resolve master
         lshaped.masterSolver()
-        if !masterPrepared
-            for i in 1:lshaped.numScenarios
-                setvalue(lshaped.θs[i],-Inf)
-            end
+        updateSolution(lshaped.masterSolver,lshaped.masterModel)
+        lshaped.status = status(lshaped.masterSolver)
+        if lshaped.status == :Infeasible
+            println("Master is infeasible, aborting procedure.")
+            println("======================")
+            return
         end
+
+        # Update master solution
         updateMasterSolution!(lshaped)
 
         # Update subproblems
@@ -324,27 +306,26 @@ function updateSubProblem!(subprob::SubProblem)
         rhsupdate[i] += coeff*getvalue(x)
     end
 
+    numCols = subprob.problem.numCols
+
     for (i,rhs) in rhsupdate
         constr = subprob.model.linconstr[i]
-        if constr.lb == constr.ub
-            rhs += constr.ub
-        elseif constr.lb == -Inf
-            rhs += constr.ub
-        elseif constr.ub == Inf
-            rhs += constr.lb
-        else
-            error(string("Can only handle equality constraints or one-sided inequality constraints: ", constr))
-        end
-        subprob.problem.b[i] = rhs
+        subprob.problem.l[numCols+i] = -(constr.ub + rhs)
+        subprob.problem.u[numCols+i] = -(constr.lb + rhs)
     end
 end
 
 function getOptimalityCut(subprob::SubProblem)
     @assert status(subprob.solver) == :Optimal
     λ = subprob.solver.λ
+    v = subprob.solver.v
+    w = subprob.solver.w
+    hl = subprob.hl
+    hu = subprob.hu
     π = subprob.π
     E = zeros(subprob.parent.structuredModel.numCols)
-    e = π*λ⋅subprob.h
+
+    e = π*v[subprob.hli]⋅hl[subprob.hli] + π*w[subprob.hui]⋅hu[subprob.hui]
 
     for (i,x,coeff) in subprob.masterTerms
         E[x.col] += π*λ[i]*(-coeff)
@@ -356,8 +337,13 @@ end
 function getFeasibilityCut(subprob::SubProblem)
     @assert status(subprob.solver) == :Infeasible
     λ = subprob.solver.λ
+    v = subprob.solver.v
+    w = subprob.solver.w
+    hl = subprob.hl
+    hu = subprob.hu
     D = zeros(subprob.parent.structuredModel.numCols)
-    d = λ⋅subprob.h
+
+    d = v[subprob.hli]⋅hl[subprob.hli] + w[subprob.hui]⋅hu[subprob.hui]
 
     for (i,x,coeff) in subprob.masterTerms
         D[x.col] += λ[i]*(-coeff)

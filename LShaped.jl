@@ -10,6 +10,7 @@ import Base.show
 using JuMP
 using StructJuMP
 using Clp
+using Gurobi
 using MathProgBase.linprog
 
 export
@@ -23,12 +24,12 @@ export
     status,
     updateSolution
 
-typealias JuMPModel JuMP.Model
-typealias JuMPVariable JuMP.Variable
+JuMPModel = JuMP.Model
+JuMPVariable = JuMP.Variable
 
 # Include files
 include("LPSolver.jl")
-include("Simplex.jl")
+#include("Simplex.jl")
 include("LShapedSolver.jl")
 
 end # module
