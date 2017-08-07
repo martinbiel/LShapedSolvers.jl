@@ -109,7 +109,7 @@ function loadStandardForm!(p::LPProblem,
 end
 
 function addObjective!(p::LPProblem,m::JuMPModel)
-    p.c = zeros(p.numCols)
+    p.c = zeros(p.numCols+p.numSlacks)
     sign = m.objSense == :Min ? 1 : -1
     affobj = m.obj.aff
     @inbounds for (i,var) in enumerate(affobj.vars)

@@ -13,8 +13,11 @@ using Clp
 using Gurobi
 using MathProgBase.linprog
 
+import MathProgBase.SolverInterface.AbstractMathProgSolver
+
 export
     LShapedSolver,
+    RegularizedLShapedSolver,
     updateSubProblem!,
     LPProblem,
     LPSolver,
@@ -30,6 +33,9 @@ JuMPVariable = JuMP.Variable
 # Include files
 include("LPSolver.jl")
 #include("Simplex.jl")
+include("Subproblem.jl")
+include("AbstractLShaped.jl")
 include("LShapedSolver.jl")
+include("RegularizedLShapedSolver.jl")
 
 end # module

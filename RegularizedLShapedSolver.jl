@@ -1,0 +1,144 @@
+mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
+    structuredModel::JuMPModel
+
+    masterModel::JuMPModel
+    masterSolver::AbstractMathProgSolver
+
+    subProblems::Vector{SubProblem}
+
+    # Regularizer
+    a::Vector{Float64}
+    Qa::Float64
+
+    # Cuts
+    θs
+    ready
+    numOptimalityCuts::Integer
+    numFeasibilityCuts::Integer
+
+    status::Symbol
+    τ::Float64
+
+    function RegularizedLShapedSolver(m::JuMPModel,a::Vector{Float64})
+        lshaped = new(m)
+
+        if length(a) != m.numCols
+            throw(ArgumentError(string("Incorrect length of regularizer, has ",length(a)," should be ",m.numCols)))
+        end
+        lshaped.a = a
+
+        init(lshaped)
+
+        return lshaped
+    end
+end
+
+RegularizedLShapedSolver{T <: Real}(m::JuMPModel,a::Vector{T}) = RegularizedLShapedSolver(m,convert(Vector{Float64},a))
+
+function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
+    print(io,"RegularizedLShapedSolver")
+end
+
+function prepareMaster!(lshaped::RegularizedLShapedSolver,n)
+    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
+    lshaped.ready = falses(n)
+
+    updateObjective!(lshaped)
+
+    env = Gurobi.Env()
+    lshaped.masterSolver = GurobiSolver(env,OutputFlag=0)
+    setsolver(lshaped.masterModel,lshaped.masterSolver)
+end
+
+function updateObjective!(lshaped::RegularizedLShapedSolver)
+
+    c = lshaped.structuredModel.obj.aff.coeffs
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+    objinds = [v.col for v in lshaped.structuredModel.obj.aff.vars]
+    x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
+
+    @objective(lshaped.masterModel,Min,sum(c.*x[objinds]) + sum(lshaped.θs[lshaped.ready]) + sum((x-lshaped.a).*(x-lshaped.a)))
+end
+
+function (lshaped::RegularizedLShapedSolver)()
+    println("Starting L-Shaped procedure\n")
+    println("======================")
+    # Initial solve of master problem
+    println("Initial solve of master")
+    lshaped.status = solve(lshaped.masterModel)
+    if lshaped.status == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
+    end
+    updateMasterSolution!(lshaped)
+
+    # Initial update of sub problems
+    map(updateSubProblem!,lshaped.subProblems)
+
+    addedCut = false
+
+    println("Main loop")
+    println("======================")
+
+    while true
+        # Solve sub problems
+        for subprob in lshaped.subProblems
+            println("Solving subproblem: ",subprob.id)
+            subprob.solver()
+            updateSolution(subprob.solver,subprob.model)
+            lshaped.status = status(subprob.solver)
+            if lshaped.status == :Unbounded
+                println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
+                println("======================")
+                return
+            end
+            addedCut |= addCut!(lshaped,subprob)
+        end
+
+        obj = getobjectivevalue(lshaped.structuredModel)
+        if !addedCut || (obj - lshaped.Qa) <= lshaped.τ
+            lshaped.a = lshaped.structuredModel.colVal
+            lshaped.Qa = obj
+        end
+
+        updateObjective!(lshaped)
+
+        # Resolve master
+        println("Solving master problem")
+        lshaped.status = solve(lshaped.masterModel)
+        if lshaped.status == :Infeasible
+            println("Master is infeasible, aborting procedure.")
+            println("======================")
+            return
+        end
+        # Update master solution
+        updateMasterSolution!(lshaped)
+
+        if checkOptimality(lshaped)
+            # Optimal
+            lshaped.status = :Optimal
+            println("Optimal!")
+            println("======================")
+            break
+        end
+
+        # Update subproblems
+        map(updateSubProblem!,lshaped.subProblems)
+
+        # Reset
+        addedCut = false
+    end
+end
+
+function checkOptimality(lshaped::RegularizedLShapedSolver)
+    obj = lshaped.structuredModel.objVal
+
+    @show obj - lshaped.Qa
+
+    if abs((obj - lshaped.Qa)/lshaped.Qa) <= lshaped.τ
+        return true
+    else
+        return false
+    end
+end
