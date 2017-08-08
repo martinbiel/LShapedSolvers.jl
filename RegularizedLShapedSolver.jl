@@ -3,6 +3,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 
     masterModel::JuMPModel
     masterSolver::AbstractMathProgSolver
+    gurobienv::Gurobi.Env
 
     subProblems::Vector{SubProblem}
 
@@ -45,8 +46,9 @@ function prepareMaster!(lshaped::RegularizedLShapedSolver,n)
 
     updateObjective!(lshaped)
 
-    env = Gurobi.Env()
-    lshaped.masterSolver = GurobiSolver(env,OutputFlag=0)
+    lshaped.gurobienv = Gurobi.Env()
+    setparam!(lshaped.gurobienv,"OutputFlag",0)
+    lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
     setsolver(lshaped.masterModel,lshaped.masterSolver)
 end
 
@@ -57,7 +59,7 @@ function updateObjective!(lshaped::RegularizedLShapedSolver)
     objinds = [v.col for v in lshaped.structuredModel.obj.aff.vars]
     x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
 
-    @objective(lshaped.masterModel,Min,sum(c.*x[objinds]) + sum(lshaped.θs[lshaped.ready]) + sum((x-lshaped.a).*(x-lshaped.a)))
+    @objective(lshaped.masterModel,Min,sum(c.*x[objinds]) + sum(lshaped.θs[lshaped.ready]) + 0.5*sum((x-lshaped.a).*(x-lshaped.a)))
 end
 
 function (lshaped::RegularizedLShapedSolver)()
@@ -97,6 +99,7 @@ function (lshaped::RegularizedLShapedSolver)()
         end
 
         obj = getobjectivevalue(lshaped.structuredModel)
+        obj *= lshaped.structuredModel.objSense == :Min ? 1 : -1
         if !addedCut || (obj - lshaped.Qa) <= lshaped.τ
             lshaped.a = lshaped.structuredModel.colVal
             lshaped.Qa = obj
@@ -107,10 +110,26 @@ function (lshaped::RegularizedLShapedSolver)()
         # Resolve master
         println("Solving master problem")
         lshaped.status = solve(lshaped.masterModel)
-        if lshaped.status == :Infeasible
-            println("Master is infeasible, aborting procedure.")
-            println("======================")
-            return
+        if lshaped.status != :Optimal
+            setparam!(lshaped.gurobienv,"Presolve",2)
+            setparam!(lshaped.gurobienv,"BarHomogeneous",1)
+            lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
+            setsolver(lshaped.masterModel,lshaped.masterSolver)
+            lshaped.status = solve(lshaped.masterModel)
+            if lshaped.status != :Optimal
+                setparam!(lshaped.gurobienv,"Presolve",-1)
+                setparam!(lshaped.gurobienv,"BarHomogeneous",-1)
+                lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
+                setsolver(lshaped.masterModel,lshaped.masterSolver)
+            else
+                if lshaped.status == :Infeasible
+                    println("Master is infeasible, aborting procedure.")
+                else
+                    println("Master could not be solved, aborting procedure")
+                end
+                println("======================")
+                return
+            end
         end
         # Update master solution
         updateMasterSolution!(lshaped)
@@ -133,8 +152,10 @@ end
 
 function checkOptimality(lshaped::RegularizedLShapedSolver)
     obj = lshaped.structuredModel.objVal
+    obj *= lshaped.structuredModel.objSense == :Min ? 1 : -1
 
-    @show obj - lshaped.Qa
+    @show obj
+    @show lshaped.Qa
 
     if abs((obj - lshaped.Qa)/lshaped.Qa) <= lshaped.τ
         return true
