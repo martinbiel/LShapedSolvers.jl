@@ -116,7 +116,7 @@ function (lshaped::RegularizedLShapedSolver)()
             lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
             setsolver(lshaped.masterModel,lshaped.masterSolver)
             lshaped.status = solve(lshaped.masterModel)
-            if lshaped.status != :Optimal
+            if lshaped.status == :Optimal
                 setparam!(lshaped.gurobienv,"Presolve",-1)
                 setparam!(lshaped.gurobienv,"BarHomogeneous",-1)
                 lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
