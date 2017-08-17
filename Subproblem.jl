@@ -95,3 +95,18 @@ function getFeasibilityCut(subprob::SubProblem)
 
     return D, d
 end
+
+function (subprob::SubProblem)()
+    subprob.solver()
+    updateSolution(subprob.solver,subprob.model)
+    solvestatus = status(subprob.solver)
+    if solvestatus == :Optimal
+        return OptimalityCut(subprob)
+    elseif solvestatus == :Infeasible
+        return FeasibilityCut(subprob)
+    elseif lshaped.status == :Unbounded
+        return ImproperCut()
+    else
+        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
+    end
+end
