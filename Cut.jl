@@ -2,7 +2,7 @@ abstract type AbstractCut end
 
 proper(cut::AbstractCut) = true
 
-struct OptimalityCut
+struct OptimalityCut <: AbstractCut
     E::AbstractVector
     e::Real
     id::Integer
@@ -18,12 +18,12 @@ function OptimalityCut(subprob::SubProblem)
     finite_hl = find(!isinf,hl)
     finite_hu = find(!isinf,hu)
     π = subprob.π
-    E = zeros(subprob.parent.numCols)
+    E = zeros(subprob.nMasterCols)
 
     e = π*v[finite_hl]⋅hl[finite_hl] + π*w[finite_hu]⋅hu[finite_hu]
 
-    for (i,x,coeff) in subprob.masterTerms
-        E[x.col] += π*λ[i]*(-coeff)
+    for (i,j,coeff) in subprob.masterTerms
+        E[j] -= π*λ[i]*coeff
     end
 
     return OptimalityCut(E, e, subprob.id)
@@ -65,9 +65,10 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     return true
 end
 
-struct FeasibilityCut
+struct FeasibilityCut <: AbstractCut
     D::AbstractVector
     d::Real
+    id::Integer
 end
 
 function FeasibilityCut(subprob::SubProblem)
@@ -79,15 +80,15 @@ function FeasibilityCut(subprob::SubProblem)
     hu = subprob.hu
     finite_hl = find(!isinf,hl)
     finite_hu = find(!isinf,hu)
-    D = zeros(subprob.parent.numCols)
+    D = zeros(subprob.nMasterCols)
 
     d = v[finite_hl]⋅hl[finite_hl] + w[finite_hu]⋅hu[finite_hu]
 
-    for (i,x,coeff) in subprob.masterTerms
-        D[x.col] += λ[i]*(-coeff)
+    for (i,j,coeff) in subprob.masterTerms
+        D[j] -= λ[i]*coeff
     end
 
-    return FeasibilityCut(D, d)
+    return FeasibilityCut(D, d, subprob.id)
 end
 
 function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
@@ -117,5 +118,8 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
     return true
 end
 
-struct ImproperCut <: AbstractCut end
+struct ImproperCut <: AbstractCut
+    id::Integer
+end
+ImproperCut(subprob::SubProblem) = ImproperCut(subprob.id)
 proper(cut::ImproperCut) = false

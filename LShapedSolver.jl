@@ -41,7 +41,7 @@ function (lshaped::LShapedSolver)()
     updateMasterSolution!(lshaped)
 
     # Initial update of sub problems
-    map(updateSubProblem!,lshaped.subProblems)
+    updateSubProblems!(lshaped.subProblems,lshaped.structuredModel.colVal)
 
     addedCut = false
 
@@ -52,15 +52,13 @@ function (lshaped::LShapedSolver)()
         # Solve sub problems
         for subprob in lshaped.subProblems
             println("Solving subproblem: ",subprob.id)
-            subprob.solver()
-            updateSolution(subprob.solver,subprob.model)
-            lshaped.status = status(subprob.solver)
-            if lshaped.status == :Unbounded
+            cut = subprob()
+            if !proper(cut)
                 println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
                 println("======================")
                 return
             end
-            addedCut |= addCut!(lshaped,subprob)
+            addedCut |= addCut!(lshaped,cut)
         end
 
         if !addedCut
@@ -88,7 +86,7 @@ function (lshaped::LShapedSolver)()
         updateMasterSolution!(lshaped)
 
         # Update subproblems
-        map(updateSubProblem!,lshaped.subProblems)
+        updateSubProblems!(lshaped.subProblems,lshaped.structuredModel.colVal)
 
         # Reset
         addedCut = false
