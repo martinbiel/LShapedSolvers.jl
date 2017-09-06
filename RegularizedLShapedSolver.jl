@@ -17,8 +17,8 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     subObjectives::AbstractVector
 
     # Regularizer
-    a::AbstractVector
-    Qa::Real
+    ξ::AbstractVector
+    Q̃::Real
     nExactSteps::Integer
     nApproximateSteps::Integer
     nNullSteps::Integer
@@ -35,16 +35,15 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     γ::Real
     τ::Real
     p::Real
-    ref::Real
 
-    function RegularizedLShapedSolver(m::JuMPModel,a::Vector{Float64})
+    function RegularizedLShapedSolver(m::JuMPModel,ξ::Vector{Float64})
         lshaped = new(m)
 
-        if length(a) != m.numCols
-            throw(ArgumentError(string("Incorrect length of regularizer, has ",length(a)," should be ",m.numCols)))
+        if length(ξ) != m.numCols
+            throw(ArgumentError(string("Incorrect length of regularizer, has ",length(ξ)," should be ",m.numCols)))
         end
 
-        lshaped.a = a
+        lshaped.ξ = ξ
         lshaped.σ = 1.0
         lshaped.γ = 0.9
         lshaped.p = 1.0
@@ -58,7 +57,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
         lshaped.inactive = Vector{AbstractHyperplane}()
         lshaped.violating = PriorityQueue(Reverse)
 
-        lshaped.Qa = calculateObjective(lshaped,a)
+        lshaped.Q̃ = calculateObjective(lshaped,ξ)
 
         return lshaped
     end
@@ -66,13 +65,13 @@ end
 
 @traitimpl IsRegularized{RegularizedLShapedSolver}
 
-RegularizedLShapedSolver(m::JuMPModel,a::AbstractVector,ref::Real) = RegularizedLShapedSolver(m,convert(Vector{Float64},a))
+RegularizedLShapedSolver(m::JuMPModel,ξ::AbstractVector) = RegularizedLShapedSolver(m,convert(Vector{Float64},ξ))
 
 function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
     print(io,"RegularizedLShapedSolver")
 end
 
-@traitfn function prepareMaster!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS,n)
+function prepareMaster!(lshaped::RegularizedLShapedSolver,n::Integer)
     lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
     lshaped.ready = falses(n)
 
@@ -98,6 +97,7 @@ end
     append!(lshaped.inactive,lshaped.committee[inactive])
     deleteat!(lshaped.committee,inactive)
     delconstrs!(lshaped.internal,inactive)
+    #delconstrs!(lshaped.masterSolver.model,inactive)
     return true
 end
 
@@ -123,20 +123,20 @@ end
     c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
 
-    @objective(lshaped.masterModel,Min,sum(c.*x) + sum(lshaped.θs[lshaped.ready]) + (1/(2*lshaped.σ))*sum((x-lshaped.a).*(x-lshaped.a)))
+    @objective(lshaped.masterModel,Min,sum(c.*x) + sum(lshaped.θs) + (1/(2*lshaped.σ))*sum((x-lshaped.ξ).*(x-lshaped.ξ)))
 end
 
 @traitfn function takeRegularizedStep!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
     θ = sum(getvalue(lshaped.θs))
     if abs(θ-lshaped.obj) <= lshaped.τ*(1+abs(lshaped.obj))
         println("Exact serious step")
-        lshaped.a = copy(lshaped.x)
-        lshaped.Qa = lshaped.obj
+        lshaped.ξ = copy(lshaped.x)
+        lshaped.Q̃ = lshaped.obj
         lshaped.nExactSteps += 1
-    elseif lshaped.obj <= lshaped.γ*lshaped.Qa + (1-lshaped.γ)*θ + lshaped.τ && approximate(lshaped)
+    elseif lshaped.obj <= lshaped.γ*lshaped.Q̃ + (1-lshaped.γ)*θ + lshaped.τ && false
         println("Approximate serious step")
-        lshaped.a = copy(lshaped.x)
-        lshaped.Qa = lshaped.obj
+        lshaped.ξ = copy(lshaped.x)
+        lshaped.Q̃ = lshaped.obj
         lshaped.nApproximateSteps += 1
     else
         println("Null step")
@@ -151,23 +151,20 @@ end
     z = c⋅lshaped.x + sum(getvalue(lshaped.θs[lshaped.ready]))
 
     @show z
-    @show lshaped.Qa
-    @show abs(z-lshaped.Qa)
+    @show lshaped.Q̃
+    @show abs(z-lshaped.Q̃)
 
-    if abs(z - lshaped.Qa) <= lshaped.τ*(1+abs(lshaped.Qa))
+    if abs(z - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
         return true
     else
         return false
     end
 end
 
-function approximate(lshaped::RegularizedLShapedSolver)
-    nactive = count(map(c->active(lshaped,c),lshaped.committee))
-    return nactive == length(lshaped.structuredModel.linconstr) + lshaped.nscenarios
-end
-
 function (lshaped::RegularizedLShapedSolver)()
-    println("Starting L-Shaped procedure\n")
+    updateSubProblems!(lshaped.subProblems,lshaped.ξ)
+    map(s->addCut!(lshaped,s()),lshaped.subProblems)
+    println("Starting regularized L-Shaped procedure\n")
     println("======================")
     # Initial solve of master problem
     println("Initial solve of master")
@@ -193,10 +190,6 @@ function (lshaped::RegularizedLShapedSolver)()
             updateObjectiveValue!(lshaped)
 
             takeRegularizedStep!(lshaped)
-
-            c = MathProgBase.SolverInterface.getobj(lshaped.internal)
-            c[end-lshaped.nscenarios+1:end] = lshaped.p
-            MathProgBase.SolverInterface.setobj!(lshaped.internal,c)
         else
             # Add at most L violating constraints
             L = 0

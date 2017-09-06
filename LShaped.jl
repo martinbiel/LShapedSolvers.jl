@@ -16,6 +16,7 @@ import DataStructures: PriorityQueue,enqueue!,dequeue!
 export
     LShapedSolver,
     RegularizedLShapedSolver,
+    TrustRegionLShapedSolver,
     AsynchronousLShapedSolver,
     updateSubProblem!,
     LPProblem,
@@ -37,6 +38,7 @@ include("AbstractLShaped.jl")
 include("Cut.jl")
 include("LShapedSolver.jl")
 include("RegularizedLShapedSolver.jl")
+include("TrustRegionLShapedSolver.jl")
 include("AsynchronousLShapedSolver.jl")
 
 end # module

@@ -57,6 +57,18 @@ function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
     lshaped.masterModel = master
 end
 
+function prepareMaster!(lshaped::AbstractLShapedSolver,n::Integer)
+    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
+    @constraint(lshaped.masterModel,thetabound[i = 1:n],θ[i] >= -1e19)
+    lshaped.ready = falses(n)
+
+    updateObjective!(lshaped)
+
+    p = LPProblem(lshaped.masterModel)
+    lshaped.masterProblem = p
+    lshaped.masterSolver = LPSolver(p)
+end
+
 function resolveSubproblems!(lshaped::AbstractLShapedSolver)
     # Update subproblems
     updateSubProblems!(lshaped.subProblems,lshaped.x)
@@ -80,18 +92,6 @@ end
 # IsRegularized -> Algorithm uses regularized decomposition
 # ------------------------------------------------------------
 @traitdef IsRegularized{LS}
-
-@traitfn function prepareMaster!{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS,n)
-    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
-    @constraint(lshaped.masterModel,thetabound[i = 1:n],θ[i] >= -1e19)
-    lshaped.ready = falses(n)
-
-    updateObjective!(lshaped)
-
-    p = LPProblem(lshaped.masterModel)
-    lshaped.masterProblem = p
-    lshaped.masterSolver = LPSolver(p)
-end
 
 @traitfn function updateObjective!{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS)
     c = lshaped.structuredModel.obj.aff.coeffs

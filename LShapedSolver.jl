@@ -65,13 +65,13 @@ function (lshaped::LShapedSolver)()
         # Resolve master
         println("Solving master problem")
         lshaped.masterSolver()
-        updateSolution(lshaped.masterSolver,lshaped.masterModel)
         lshaped.status = status(lshaped.masterSolver)
         if lshaped.status == :Infeasible
             println("Master is infeasible, aborting procedure.")
             println("======================")
             return
         end
+        updateSolution(lshaped.masterSolver,lshaped.masterModel)
 
         # Update master solution
         updateSolution!(lshaped)
