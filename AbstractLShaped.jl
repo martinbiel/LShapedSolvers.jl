@@ -1,6 +1,6 @@
 abstract type AbstractLShapedSolver end
 
-nscenarios(lshaped::AbstractLShapedSolver) = length(lshaped.subProblems)
+nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
 function Base.show(io::IO, lshaped::AbstractLShapedSolver)
     print(io,"LShapedSolver")
@@ -10,19 +10,23 @@ function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
     show(io,lshaped)
 end
 
-function updateMasterSolution!(lshaped::AbstractLShapedSolver)
-    for i in 1:lshaped.structuredModel.numCols
-        lshaped.structuredModel.colVal[i] = lshaped.masterModel.colVal[i]
-    end
+function updateSolution!(lshaped::AbstractLShapedSolver)
+    lshaped.x = lshaped.masterModel.colVal[1:lshaped.structuredModel.numCols]
+end
 
-    x = lshaped.structuredModel.colVal
+function updateObjectiveValue!(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
+    lshaped.obj = c⋅lshaped.x + sum(lshaped.subObjectives)
+end
 
-    lshaped.structuredModel.objVal = c⋅x + sum(getvalue(lshaped.θs[lshaped.ready]))
+function updateStructuredModel!(lshaped::AbstractLShapedSolver)
+    c = JuMP.prepAffObjective(lshaped.structuredModel)
+    lshaped.structuredModel.colVal = copy(lshaped.x)
+    lshaped.structuredModel.objVal = c⋅lshaped.x + sum(lshaped.subObjectives)
     lshaped.structuredModel.objVal *= lshaped.structuredModel.objSense == :Min ? 1 : -1
 end
 
-function extractMaster!(src::JuMPModel)
+function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
     @assert haskey(src.ext,:Stochastic) "The provided model is not structured"
 
     # Minimal copy of master part of structured problem
@@ -50,7 +54,24 @@ function extractMaster!(src::JuMPModel)
     master.colCat = src.colCat[:]
     master.colVal = src.colVal[:]
 
-    return master
+    lshaped.masterModel = master
+end
+
+function resolveSubproblems!(lshaped::AbstractLShapedSolver)
+    # Update subproblems
+    updateSubProblems!(lshaped.subProblems,lshaped.x)
+
+    # Solve sub problems
+    for subprob in lshaped.subProblems
+        println("Solving subproblem: ",subprob.id)
+        cut = subprob()
+        if !proper(cut)
+            println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
+            println("======================")
+            return
+        end
+        addCut!(lshaped,cut)
+    end
 end
 
 # TRAITS #
@@ -75,13 +96,17 @@ end
 @traitfn function updateObjective!{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS)
     c = lshaped.structuredModel.obj.aff.coeffs
     c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    objinds = [v.col for v in lshaped.structuredModel.obj.aff.vars]
-    x = [Variable(lshaped.masterModel,i) for i in objinds]
+    objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
+    x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
 
-    @objective(lshaped.masterModel,Min,sum(c.*x) + sum(lshaped.θs))
+    @objective(lshaped.masterModel,Min,sum(c.*x[objidx]) + sum(lshaped.θs))
 end
 
-@traitfn checkOptimality{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS) = all([!addCut!(lshaped,subprob()) for subprob in lshaped.subProblems])
+@traitfn function checkOptimality{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS)
+    Q = sum(lshaped.subObjectives)
+    θ = sum(getvalue(lshaped.θs))
+    return abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+end
 
 # IsParallel -> Algorithm is run in parallel
 # ------------------------------------------------------------
@@ -92,17 +117,27 @@ end
     @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
     n = num_scenarios(m)
 
-    lshaped.masterModel = extractMaster!(m)
+    extractMaster!(lshaped,m)
     prepareMaster!(lshaped,n)
+    lshaped.x = m.colVal
+    lshaped.obj = Inf
 
+    lshaped.nscenarios = n
     lshaped.subProblems = Vector{SubProblem}(n)
     π = getprobability(lshaped.structuredModel)
     for i = 1:n
         lshaped.subProblems[i] = SubProblem(getchildren(m)[i],m,i,π[i])
     end
+    lshaped.subObjectives = zeros(n)
 
-    lshaped.numOptimalityCuts = 0
-    lshaped.numFeasibilityCuts = 0
+    lshaped.cuts = Vector{AbstractHyperplane}()
+    lshaped.nOptimalityCuts = 0
+    lshaped.nFeasibilityCuts = 0
 
     lshaped.τ = 1e-6
+end
+
+@traitfn function calculateObjective{LS <: AbstractLShapedSolver; !IsParallel{LS}}(lshaped::LS,x::AbstractVector)
+    c = JuMP.prepAffObjective(lshaped.structuredModel)
+    return c⋅x + sum([subprob.π*subprob(x) for subprob in lshaped.subProblems])
 end

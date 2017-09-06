@@ -196,6 +196,8 @@ mutable struct LPSolver
     v::AbstractVector # Variable duals (lower bound)
     w::AbstractVector # Variable duals (upper bound)
 
+    model::AbstractLinearQuadraticModel
+    solver::AbstractMathProgSolver
     status::Symbol
 
     function LPSolver(lp::LPProblem)
@@ -208,6 +210,9 @@ mutable struct LPSolver
         solver.w = zero(lp.c)
 
         solver.status = :NotSolved
+        solver.solver = GurobiSolver(OutputFlag=0)
+        solver.model = LinearQuadraticModel(solver.solver)
+        loadproblem!(solver.model,lp.A,lp.l,lp.u,lp.c,zeros(size(lp.A,1)),zeros(size(lp.A,1)),:Min)
 
         return solver
     end
@@ -217,20 +222,18 @@ function (solver::LPSolver)()
     lp = solver.lp
     basis = collect((lp.numCols+1):(lp.numCols+lp.numSlacks))
 
-    env = Gurobi.Env()
-    #x,obj,λ,s,_,_,_,status = primalsimplex(lp.A,lp.b,lp.c)
-    sol = linprog(lp.c, lp.A, fill('=',lp.numRows), 0.0, lp.l, lp.u, GurobiSolver(env, OutputFlag=0))
-
-    solver.status = sol.status
+    setwarmstart!(solver.model,solver.x)
+    optimize!(solver.model)
+    solver.status = status(solver.model)
 
     if solver.status == :Optimal
-        solver.x = sol.sol
-        solver.obj = sol.objval
-        solver.λ = sol.attrs[:lambda]
-        solver.v,solver.w = getVariableDuals(solver,sol.attrs[:redcost])
+        solver.x = getsolution(solver.model)
+        solver.obj = getobjval(solver.model)
+        solver.λ = getconstrduals(solver.model)
+        solver.v,solver.w = getVariableDuals(solver,getreducedcosts(solver.model))
     elseif solver.status == :Infeasible
         solver.obj = Inf
-        solver.λ = sol.attrs[:infeasibilityray]
+        solver.λ = getinfeasibilityray(solver.model)
     elseif solver.status == :Unbounded
         solver.obj = -Inf
     else

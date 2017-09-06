@@ -4,14 +4,19 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
     masterModel::JuMPModel
     masterProblem::LPProblem
     masterSolver::LPSolver
+    x::AbstractVector
+    obj::Real
 
+    nscenarios::Integer
     subProblems::Vector{SubProblem}
+    subObjectives::AbstractVector
 
     # Cuts
     θs
     ready
-    numOptimalityCuts::Integer
-    numFeasibilityCuts::Integer
+    nOptimalityCuts::Integer
+    nFeasibilityCuts::Integer
+    cuts::Vector{AbstractHyperplane}
 
     status::Symbol
     τ::Float64
@@ -20,6 +25,7 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
         lshaped = new(m)
 
         init(lshaped)
+        lshaped.cuts = Vector{AbstractHyperplane}()
 
         return lshaped
     end
@@ -38,37 +44,22 @@ function (lshaped::LShapedSolver)()
         println("======================")
         return
     end
-    updateMasterSolution!(lshaped)
-
-    # Initial update of sub problems
-    updateSubProblems!(lshaped.subProblems,lshaped.structuredModel.colVal)
-
-    addedCut = false
+    updateSolution!(lshaped)
 
     println("Main loop")
     println("======================")
 
     while true
-        # Solve sub problems
-        for subprob in lshaped.subProblems
-            println("Solving subproblem: ",subprob.id)
-            cut = subprob()
-            if !proper(cut)
-                println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
-                println("======================")
-                return
-            end
-            addedCut |= addCut!(lshaped,cut)
-        end
+        # Resolve all subproblems at the current optimal solution
+        resolveSubproblems!(lshaped)
 
-        if !addedCut
+        if checkOptimality(lshaped)
             # Optimal
             lshaped.status = :Optimal
+            updateStructuredModel!(lshaped)
             println("Optimal!")
             println("======================")
             break
-        else
-            addRows!(lshaped.masterProblem,lshaped.masterModel)
         end
 
         # Resolve master
@@ -83,12 +74,6 @@ function (lshaped::LShapedSolver)()
         end
 
         # Update master solution
-        updateMasterSolution!(lshaped)
-
-        # Update subproblems
-        updateSubProblems!(lshaped.subProblems,lshaped.structuredModel.colVal)
-
-        # Reset
-        addedCut = false
+        updateSolution!(lshaped)
     end
 end

@@ -50,6 +50,8 @@ function updateSubProblem!(subprob::SubProblem,x::AbstractVector)
         subprob.problem.l[m+i] -= coeff*x[j]
         subprob.problem.u[m+i] -= coeff*x[j]
     end
+    setvarLB!(subprob.solver.model, subprob.problem.l)
+    setvarUB!(subprob.solver.model, subprob.problem.u)
 end
 
 updateSubProblems!(subprobs::Vector{SubProblem},x::AbstractVector) = map(prob -> updateSubProblem!(prob,x),subprobs)
@@ -97,14 +99,29 @@ end
 
 function (subprob::SubProblem)()
     subprob.solver()
-    updateSolution(subprob.solver,subprob.model)
     solvestatus = status(subprob.solver)
     if solvestatus == :Optimal
+        updateSolution(subprob.solver,subprob.model)
         return OptimalityCut(subprob)
     elseif solvestatus == :Infeasible
         return FeasibilityCut(subprob)
     elseif lshaped.status == :Unbounded
         return ImproperCut(subprob)
+    else
+        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
+    end
+end
+
+function (subprob::SubProblem)(x::AbstractVector)
+    updateSubProblem!(subprob,x)
+    subprob.solver()
+    solvestatus = status(subprob.solver)
+    if solvestatus == :Optimal
+        return subprob.solver.obj
+    elseif solvestatus == :Infeasible
+        error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subprob.id))
+    elseif lshaped.status == :Unbounded
+        error(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subprob.id))
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
     end

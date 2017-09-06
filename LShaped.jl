@@ -1,20 +1,17 @@
 module LShaped
 
-# Import functions for overloading
-import Base.show
 
-# Export only the useful functions
-# export function2
-
-# Packages
 using SimpleTraits
 using JuMP
 using StructJuMP
 using Clp
 using Gurobi
-using MathProgBase.linprog
+using MathProgBase
 
-import MathProgBase.SolverInterface.AbstractMathProgSolver
+import Base: show, Order.Ordering, Order.Reverse
+
+import MathProgBase.SolverInterface: AbstractMathProgSolver, AbstractLinearQuadraticModel, LinearQuadraticModel, loadproblem!, delconstrs!, addconstr!, optimize!, status, getsolution, getobjval, getconstrduals, getreducedcosts, getinfeasibilityray, setvarLB!, setvarUB!, setwarmstart!
+import DataStructures: PriorityQueue,enqueue!,dequeue!
 
 export
     LShapedSolver,
