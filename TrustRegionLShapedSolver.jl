@@ -53,6 +53,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
         init(lshaped)
 
         lshaped.committee = Vector{AbstractHyperplane}()
+        #lshaped.committee = linearconstraints(lshaped.structuredModel)
         lshaped.inactive = Vector{AbstractHyperplane}()
         lshaped.violating = PriorityQueue(Reverse)
 
@@ -62,7 +63,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     end
 end
 
-@traitimpl IsRegularized{TrustRegionLShapedSolver}
+@traitimpl HasTrustRegion{TrustRegionLShapedSolver}
 
 TrustRegionLShapedSolver(m::JuMPModel,ξ::AbstractVector) = TrustRegionLShapedSolver(m,convert(Vector{Float64},ξ))
 
@@ -83,10 +84,10 @@ function prepareMaster!(lshaped::TrustRegionLShapedSolver,n::Integer)
     p = LPProblem(lshaped.masterModel)
     lshaped.masterProblem = p
     lshaped.masterSolver = LPSolver(p)
-    setTrustRegion(lshaped)
+    setTrustRegion!(lshaped)
 end
 
-function setTrustRegion(lshaped::TrustRegionLShapedSolver)
+@traitfn function setTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
     l = lshaped.structuredModel.colLower
     u = lshaped.structuredModel.colUpper
     for i = 1:lshaped.structuredModel.numCols
@@ -97,37 +98,34 @@ function setTrustRegion(lshaped::TrustRegionLShapedSolver)
     setvarUB!(lshaped.masterSolver.model, lshaped.masterProblem.u)
 end
 
-@traitfn function takeTrustRegionStep!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
+@traitfn function takeTrustRegionStep!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
     θ = sum(getvalue(lshaped.θs))
-    @show lshaped.obj
-    @show lshaped.Q̃
-    @show lshaped.γ*abs(lshaped.Q̃-θ)
     if lshaped.obj <= lshaped.Q̃ - lshaped.γ*abs(lshaped.Q̃-θ)
         println("Major step")
         lshaped.ξ = copy(lshaped.x)
         lshaped.Q̃ = lshaped.obj
-        enlargeTrustRegion(lshaped)
+        enlargeTrustRegion!(lshaped)
         lshaped.nMajorSteps += 1
     else
         println("Minor step")
-        reduceTrustRegion(lshaped)
+        reduceTrustRegion!(lshaped)
         lshaped.nMinorSteps += 1
     end
 end
 
-function enlargeTrustRegion(lshaped::TrustRegionLShapedSolver)
+@traitfn function enlargeTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
     θ = sum(getvalue(lshaped.θs))
     if abs(lshaped.obj - lshaped.Q̃) <= 0.5*(lshaped.Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.Δ <= lshaped.τ
-        # Enlarge trust-region
+        # Enlarge the trust-region radius
         lshaped.Δ = min(lshaped.Δ̅,2*lshaped.Δ)
-        setTrustRegion(lshaped)
+        setTrustRegion!(lshaped)
         return true
     else
         return false
     end
 end
 
-function reduceTrustRegion(lshaped::TrustRegionLShapedSolver)
+@traitfn function reduceTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
     θ = sum(getvalue(lshaped.θs))
     ρ = min(1,lshaped.Δ)*(lshaped.obj-lshaped.Q̃)/(lshaped.Q̃-θ)
     @show ρ
@@ -135,12 +133,28 @@ function reduceTrustRegion(lshaped::TrustRegionLShapedSolver)
         lshaped.cΔ += 1
         return false
     elseif ρ > 3 || (lshaped.cΔ >= 3 && 1 < ρ <= 3)
-        # Reduce trust-region
+        # Reduce the trust-region radius
         lshaped.cΔ = 0
         lshaped.Δ = (1/min(ρ,4))*lshaped.Δ
-        setTrustRegion(lshaped)
+        setTrustRegion!(lshaped)
         return true
     end
+end
+
+@traitfn function removeCuts!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
+    inactive = find(c->!active(lshaped,c),lshaped.committee)
+    diff = length(lshaped.committee) - lshaped.nscenarios
+    if isempty(inactive) || diff <= 0
+        return false
+    end
+    if diff <= length(inactive)
+        inactive = inactive[1:diff]
+    end
+    append!(lshaped.inactive,lshaped.committee[inactive])
+    deleteat!(lshaped.committee,inactive)
+    #delconstrs!(lshaped.masterSolver.model,inactive)
+    delconstrs!(lshaped.masterSolver.model,inactive+lshaped.masterProblem.numRows)
+    return true
 end
 
 function (lshaped::TrustRegionLShapedSolver)()
@@ -204,7 +218,7 @@ function (lshaped::TrustRegionLShapedSolver)()
 
         # Update master solution
         updateSolution!(lshaped)
-        removeInactive!(lshaped)
+        #removeCuts!(lshaped)
         if length(lshaped.violating) <= lshaped.nscenarios
             queueViolated!(lshaped)
         end

@@ -89,7 +89,7 @@ end
 # TRAITS #
 # ================== #
 
-# IsRegularized -> Algorithm uses regularized decomposition
+# IsRegularized -> Algorithm uses the regularized decomposition method of Ruszczyński
 # ------------------------------------------------------------
 @traitdef IsRegularized{LS}
 
@@ -102,10 +102,52 @@ end
     @objective(lshaped.masterModel,Min,sum(c.*x[objidx]) + sum(lshaped.θs))
 end
 
-@traitfn function checkOptimality{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS)
+# HasTrustRegion -> Algorithm uses the trust-region method of Linderoth/Wright
+# ------------------------------------------------------------
+@traitdef HasTrustRegion{LS}
+
+
+# UsesLocalization -> Algorithm uses some localization method, applies to both IsRegularized and HasTrustRegion
+@traitdef UsesLocalization{LS}
+useslocalization(LS) = (istrait(IsRegularized{LS}) || istrait(HasTrustRegion{LS}))
+@traitimpl UsesLocalization{LS} <- useslocalization(LS)
+
+@traitfn function checkOptimality{LS <: AbstractLShapedSolver; UsesLocalization{LS}}(lshaped::LS)
+    c = JuMP.prepAffObjective(lshaped.structuredModel)
+    z = c⋅lshaped.x + sum(getvalue(lshaped.θs[lshaped.ready]))
+
+    @show z
+    @show lshaped.Q̃
+    @show abs(z-lshaped.Q̃)
+
+    if abs(z - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
+        return true
+    else
+        return false
+    end
+end
+
+@traitfn function checkOptimality{LS <: AbstractLShapedSolver; !UsesLocalization{LS}}(lshaped::LS)
     Q = sum(lshaped.subObjectives)
     θ = sum(getvalue(lshaped.θs))
     return abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+end
+
+@traitfn function queueViolated!{LS <: AbstractLShapedSolver; UsesLocalization{LS}}(lshaped::LS)
+    violating = find(c->violated(lshaped,c),lshaped.inactive)
+    if isempty(violating)
+        return false
+    end
+    gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
+    if isempty(lshaped.violating)
+        lshaped.violating = PriorityQueue(Reverse,zip(lshaped.inactive[violating],gaps))
+    else
+        for (c,g) in zip(lshaped.inactive[violating],gaps)
+            enqueue!(lshaped.violating,c,g)
+        end
+    end
+    deleteat!(lshaped.inactive,violating)
+    return true
 end
 
 # IsParallel -> Algorithm is run in parallel

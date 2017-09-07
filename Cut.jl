@@ -132,7 +132,9 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     if istrait(IsRegularized{typeof(lshaped)})
         push!(lshaped.committee,cut)
         addconstr!(lshaped.internal,lowlevel(cut)...)
-        #addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+    elseif istrait(HasTrustRegion{typeof(lshaped)})
+        push!(lshaped.committee,cut)
+        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     else
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     end

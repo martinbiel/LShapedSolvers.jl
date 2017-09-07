@@ -10,7 +10,7 @@ using MathProgBase
 
 import Base: show, Order.Ordering, Order.Reverse
 
-import MathProgBase.SolverInterface: AbstractMathProgSolver, AbstractLinearQuadraticModel, LinearQuadraticModel, loadproblem!, delconstrs!, addconstr!, optimize!, status, getsolution, getobjval, getconstrduals, getreducedcosts, getinfeasibilityray, setvarLB!, setvarUB!, setwarmstart!
+import MathProgBase.SolverInterface: AbstractMathProgSolver, AbstractLinearQuadraticModel, LinearQuadraticModel, loadproblem!, delconstrs!, addconstr!, optimize!, status, getsolution, getobjval, getconstrduals, getreducedcosts, getinfeasibilityray, setvarLB!, setvarUB!, setwarmstart!, numlinconstr
 import DataStructures: PriorityQueue,enqueue!,dequeue!
 
 export

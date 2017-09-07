@@ -87,7 +87,7 @@ end
 
 @traitfn function removeInactive!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
     inactive = find(c->!active(lshaped,c),lshaped.committee)
-    diff = length(lshaped.committee) - length(lshaped.structuredModel.linconstr) - lshaped.nscenarios
+    diff = length(lshaped.committee) - lshaped.nscenarios
     if isempty(inactive) || diff <= 0
         return false
     end
@@ -97,24 +97,6 @@ end
     append!(lshaped.inactive,lshaped.committee[inactive])
     deleteat!(lshaped.committee,inactive)
     delconstrs!(lshaped.internal,inactive)
-    #delconstrs!(lshaped.masterSolver.model,inactive)
-    return true
-end
-
-@traitfn function queueViolated!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    violating = find(c->violated(lshaped,c),lshaped.inactive)
-    if isempty(violating)
-        return false
-    end
-    gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
-    if isempty(lshaped.violating)
-        lshaped.violating = PriorityQueue(Reverse,zip(lshaped.inactive[violating],gaps))
-    else
-        for (c,g) in zip(lshaped.inactive[violating],gaps)
-            enqueue!(lshaped.violating,c,g)
-        end
-    end
-    deleteat!(lshaped.inactive,violating)
     return true
 end
 
@@ -141,23 +123,6 @@ end
     else
         println("Null step")
         lshaped.nNullSteps += 1
-    end
-end
-
-# Regularized implementation
-@traitfn function checkOptimality{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-
-    z = c⋅lshaped.x + sum(getvalue(lshaped.θs[lshaped.ready]))
-
-    @show z
-    @show lshaped.Q̃
-    @show abs(z-lshaped.Q̃)
-
-    if abs(z - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
-        return true
-    else
-        return false
     end
 end
 
@@ -238,7 +203,7 @@ function (lshaped::RegularizedLShapedSolver)()
         lshaped.masterModel.colVal = getsolution(lshaped.internal)[1:lshaped.masterModel.numCols]
         # Update master solution
         updateSolution!(lshaped)
-        removeInactive!(lshaped)
+        #removeInactive!(lshaped)
         if length(lshaped.violating) <= lshaped.nscenarios
             queueViolated!(lshaped)
         end
