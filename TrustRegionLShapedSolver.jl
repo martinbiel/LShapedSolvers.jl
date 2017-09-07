@@ -3,7 +3,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
 
     masterModel::JuMPModel
     masterProblem::LPProblem
-    masterSolver::LPSolver
+    masterSolver::AbstractLQSolver
     x::AbstractVector
     obj::Real
 
@@ -18,7 +18,9 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     # Trust region
     ξ::AbstractVector
     Q̃::Real
+    Q̃_hist::AbstractVector
     Δ::Real
+    Δ_hist::AbstractVector
     Δ̅::Real
     cΔ::Integer
     nMajorSteps::Integer
@@ -43,7 +45,9 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
         end
 
         lshaped.ξ = ξ
+        lshaped.Q̃_hist = Float64[]
         lshaped.Δ = max(1.0,0.2*norm(ξ,Inf))
+        lshaped.Δ_hist = [lshaped.Δ]
         lshaped.Δ̅ = 1000*lshaped.Δ
         lshaped.cΔ = 0
         lshaped.γ = 1e-4
@@ -56,8 +60,6 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
         #lshaped.committee = linearconstraints(lshaped.structuredModel)
         lshaped.inactive = Vector{AbstractHyperplane}()
         lshaped.violating = PriorityQueue(Reverse)
-
-        lshaped.Q̃ = calculateObjective(lshaped,ξ)
 
         return lshaped
     end
@@ -83,7 +85,7 @@ function prepareMaster!(lshaped::TrustRegionLShapedSolver,n::Integer)
 
     p = LPProblem(lshaped.masterModel)
     lshaped.masterProblem = p
-    lshaped.masterSolver = LPSolver(p)
+    lshaped.masterSolver = LQSolver(p)
     setTrustRegion!(lshaped)
 end
 
@@ -104,6 +106,7 @@ end
         println("Major step")
         lshaped.ξ = copy(lshaped.x)
         lshaped.Q̃ = lshaped.obj
+        push!(lshaped.Q̃_hist,lshaped.Q̃)
         enlargeTrustRegion!(lshaped)
         lshaped.nMajorSteps += 1
     else
@@ -118,6 +121,7 @@ end
     if abs(lshaped.obj - lshaped.Q̃) <= 0.5*(lshaped.Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.Δ <= lshaped.τ
         # Enlarge the trust-region radius
         lshaped.Δ = min(lshaped.Δ̅,2*lshaped.Δ)
+        push!(lshaped.Δ_hist,lshaped.Δ)
         setTrustRegion!(lshaped)
         return true
     else
@@ -136,6 +140,7 @@ end
         # Reduce the trust-region radius
         lshaped.cΔ = 0
         lshaped.Δ = (1/min(ρ,4))*lshaped.Δ
+        push!(lshaped.Δ_hist,lshaped.Δ)
         setTrustRegion!(lshaped)
         return true
     end
@@ -160,8 +165,11 @@ end
 function (lshaped::TrustRegionLShapedSolver)()
     println("Starting trust-region L-Shaped procedure\n")
     println("======================")
+    # Initial solve of subproblems at starting guess
     updateSubProblems!(lshaped.subProblems,lshaped.ξ)
-    map(s->addCut!(lshaped,s()),lshaped.subProblems)
+    map(s->addCut!(lshaped,s(),lshaped.ξ),lshaped.subProblems)
+    lshaped.Q̃ = sum(lshaped.subObjectives)
+    push!(lshaped.Q̃_hist,lshaped.Q̃)
     # Initial solve of master problem
     println("Initial solve of master")
     lshaped.masterSolver()
@@ -228,6 +236,7 @@ function (lshaped::TrustRegionLShapedSolver)()
             lshaped.status = :Optimal
             updateStructuredModel!(lshaped)
             println("Optimal!")
+            println("Objective value: ", lshaped.Q̃)
             println("======================")
             break
         end
