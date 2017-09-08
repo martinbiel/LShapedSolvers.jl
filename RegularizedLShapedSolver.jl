@@ -1,10 +1,8 @@
 mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
-    masterModel::JuMPModel
-    internal::AbstractLinearQuadraticModel
-    masterSolver::AbstractMathProgSolver
-    gurobienv::Gurobi.Env
+    masterSolver::AbstractLQSolver
+    c::AbstractVector
     x::AbstractVector
     obj::Real
 
@@ -28,7 +26,6 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs
-    ready::BitArray
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
     cuts::Vector{AbstractHyperplane}
@@ -45,6 +42,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
             throw(ArgumentError(string("Incorrect length of regularizer, has ",length(ξ)," should be ",m.numCols)))
         end
 
+        lshaped.x = ξ
         lshaped.ξ = ξ
         lshaped.Q̃_hist = Float64[]
         lshaped.σ = 1.0
@@ -74,17 +72,30 @@ function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
 end
 
 function prepareMaster!(lshaped::RegularizedLShapedSolver,n::Integer)
-    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
-    lshaped.ready = falses(n)
+    lshaped.masterSolver = LQSolver(lshaped.structuredModel)
+    # θs
+    for i = 1:n
+        addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
+    end
+    lshaped.masterSolver.x = copy(lshaped.x)
+    append!(lshaped.masterSolver.x,fill(-Inf,n))
 
-    lshaped.gurobienv = Gurobi.Env()
-    setparam!(lshaped.gurobienv,"OutputFlag",0)
-    lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
-    setsolver(lshaped.masterModel,lshaped.masterSolver)
-    JuMP.build(lshaped.masterModel)
-    lshaped.internal = copy(lshaped.masterModel.internalModel)
-    setsense!(lshaped.internal,:Min)
+    lshaped.c = getobj(lshaped.masterSolver.model)
     updateObjective!(lshaped)
+end
+
+function updateObjective!(lshaped::RegularizedLShapedSolver)
+    # Linear regularizer penalty
+    c = copy(lshaped.c)
+    c -= (1/lshaped.σ)*lshaped.ξ
+    append!(c,fill(1.0,lshaped.nscenarios))
+    setobj!(lshaped.masterSolver.model,c)
+
+    # Quadratic regularizer penalty
+    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
+    qval = fill(1/lshaped.σ,length(lshaped.ξ))
+    append!(qval,zeros(lshaped.nscenarios))
+    setquadobj!(lshaped.masterSolver.model,qidx,qidx,qval)
 end
 
 @traitfn function removeInactive!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
@@ -98,25 +109,12 @@ end
     end
     append!(lshaped.inactive,lshaped.committee[inactive])
     deleteat!(lshaped.committee,inactive)
-    delconstrs!(lshaped.internal,inactive)
+    delconstrs!(lshaped.masterSolver.model,inactive)
     return true
 end
 
-@traitfn function updateObjective!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    c -= (1/lshaped.σ)*lshaped.ξ
-    append!(c,ones(lshaped.nscenarios))
-    setobj!(lshaped.internal,c)
-
-    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = fill(1/lshaped.σ,length(lshaped.ξ))
-    append!(qval,zeros(lshaped.nscenarios))
-    setquadobj!(lshaped.internal,qidx,qidx,qval)
-end
-
 @traitfn function takeRegularizedStep!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    θ = sum(getvalue(lshaped.θs))
+    θ = sum(lshaped.θs)
     if abs(θ-lshaped.obj) <= lshaped.τ*(1+abs(lshaped.obj))
         println("Exact serious step")
         lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
@@ -147,15 +145,15 @@ function (lshaped::RegularizedLShapedSolver)()
     println("Starting regularized L-Shaped procedure\n")
     println("======================")
     # Initial solve of subproblems at starting guess
+    println("Initial solve of subproblems at starting regularizer")
     updateSubProblems!(lshaped.subProblems,lshaped.ξ)
     map(s->addCut!(lshaped,s(),lshaped.ξ),lshaped.subProblems)
     lshaped.Q̃ = sum(lshaped.subObjectives)
     push!(lshaped.Q̃_hist,lshaped.Q̃)
     # Initial solve of master problem
     println("Initial solve of master")
-    optimize!(lshaped.internal)
-    lshaped.masterModel.colVal = getsolution(lshaped.internal)[1:lshaped.masterModel.numCols]
-    lshaped.status = status(lshaped.internal)
+    lshaped.masterSolver()
+    lshaped.status = status(lshaped.masterSolver)
     if lshaped.status == :Infeasible
         println("Master is infeasible, aborting procedure.")
         println("======================")
@@ -185,16 +183,15 @@ function (lshaped::RegularizedLShapedSolver)()
                 end
                 println("Adding violated constraint to committee")
                 push!(lshaped.committee,constraint)
-                addconstr!(lshaped.internal,lowlevel(constraint)...)
+                addconstr!(lshaped.masterSolver.model,lowlevel(constraint)...)
                 L += 1
             end
         end
 
         # Resolve master
         println("Solving master problem")
-        optimize!(lshaped.internal)
-
-        lshaped.status = status(lshaped.internal)
+        lshaped.masterSolver()
+        lshaped.status = status(lshaped.masterSolver)
         if lshaped.status == :Infeasible
             println("Master is infeasible, aborting procedure.")
             println("======================")
@@ -222,7 +219,6 @@ function (lshaped::RegularizedLShapedSolver)()
         #         return
         #     end
         # end
-        lshaped.masterModel.colVal = getsolution(lshaped.internal)[1:lshaped.masterModel.numCols]
         # Update master solution
         updateSolution!(lshaped)
         removeInactive!(lshaped)

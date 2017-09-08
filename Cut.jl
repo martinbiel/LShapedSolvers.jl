@@ -65,7 +65,6 @@ function OptimalityCut(subprob::SubProblem)
     @assert status(subprob.solver) == :Optimal
     λ = subprob.solver.λ
     π = subprob.π
-
     cols = zeros(length(subprob.masterTerms))
     vals = zeros(length(subprob.masterTerms))
     for (s,(i,j,coeff)) in enumerate(subprob.masterTerms)
@@ -73,7 +72,7 @@ function OptimalityCut(subprob::SubProblem)
         vals[s] = -π*λ[i]*coeff
     end
     δQ = sparsevec(cols,vals,length(subprob.x))
-    q = subprob.solver.obj+δQ⋅subprob.x
+    q = π*subprob.solver.obj+δQ⋅subprob.x
 
     return OptimalityCut(δQ, q, subprob.id)
 end
@@ -97,11 +96,10 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut,x::AbstractVe
     cutIdx = numvar(lshaped.masterSolver.model)
 
     Q = cut(x)
-    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
+    θ = lshaped.θs[cut.id]
     τ = lshaped.τ
 
     lshaped.subObjectives[cut.id] = Q
-    lshaped.ready[cut.id] = true
 
     println("θ",cut.id,": ", θ)
     println("Q",cut.id,": ", Q)
@@ -112,14 +110,11 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut,x::AbstractVe
         return false
     end
 
-    # Add optimality cut
-    # @constraint(m,sum(cut.δQ[i]*Variable(m,i)
-    #                   for i = 1:cutIdx) + Variable(m,cutIdx+cut.id) >= cut.q)
     lshaped.nOptimalityCuts += 1
     println("Added Optimality Cut")
     if istrait(IsRegularized{typeof(lshaped)})
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.internal,lowlevel(cut)...)
+        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     elseif istrait(HasTrustRegion{typeof(lshaped)})
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
@@ -133,20 +128,20 @@ addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut) = addCut!(lshaped,cut
 
 function optimal(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
+    θ = lshaped.θs[cut.id]
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(Q))
 end
 active(lshaped::AbstractLShapedSolver,cut::OptimalityCut) = optimal(lshaped,cut)
 
 function satisfied(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
+    θ = lshaped.θs[cut.id]
     return θ > -Inf && θ >= Q - lshaped.τ*(1+abs(Q))
 end
 
 function gap(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
+    θ = lshaped.θs[cut.id]
     if θ > -Inf
         return θ-Q
     else
@@ -163,15 +158,6 @@ end
 function FeasibilityCut(subprob::SubProblem)
     @assert status(subprob.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"
     λ = subprob.solver.λ
-    v = subprob.solver.v
-    w = subprob.solver.w
-    hl = subprob.hl
-    hu = subprob.hu
-    finite_hl = find(!isinf,hl)
-    finite_hu = find(!isinf,hu)
-
-    g = v[finite_hl]⋅hl[finite_hl] + w[finite_hu]⋅hu[finite_hu]
-
     cols = zeros(length(subprob.masterTerms))
     vals = zeros(length(subprob.masterTerms))
     for (s,(i,j,coeff)) in enumerate(subprob.masterTerms)
@@ -179,6 +165,7 @@ function FeasibilityCut(subprob::SubProblem)
         vals[s] = -λ[i]*coeff
     end
     G = sparsevec(cols,vals,subprob.nMasterCols)
+    g = subprob.solver.obj-G⋅subprob.x
 
     return FeasibilityCut(G, g, subprob.id)
 end
@@ -204,14 +191,11 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
 
     D = D/scaling
 
-    # Add feasibility cut
-    # @constraint(m,sum(D[i]*Variable(m,i)
-    #                   for i = 1:cutIdx) >= sign(d))
     lshaped.nFeasibilityCuts += 1
     println("Added Feasibility Cut")
     if istrait(IsRegularized{typeof(lshaped)})
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.internal,lowlevel(cut)...)
+        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     elseif istrait(HasTrustRegion{typeof(lshaped)})
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)

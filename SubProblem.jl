@@ -4,8 +4,7 @@ mutable struct SubProblem
 
     solver::AbstractLQSolver
 
-    hlb::AbstractVector
-    hub::AbstractVector
+    h::Tuple{AbstractVector,AbstractVector}
     x::AbstractVector
     masterTerms::AbstractVector
 
@@ -14,8 +13,7 @@ mutable struct SubProblem
 
         subprob.solver = LQSolver(m)
 
-        subprob.hlb = getconstrLB(subprob.solver.model)
-        subprob.hub = getconstrUB(subprob.solver.model)
+        subprob.h = (getconstrLB(subprob.solver.model),getconstrUB(subprob.solver.model))
         subprob.x = zeros(parent.numCols)
         subprob.masterTerms = []
         parseSubProblem!(subprob,m,parent)
@@ -39,8 +37,8 @@ function updateSubProblem!(subprob::SubProblem,x::AbstractVector)
     lb = getconstrLB(subprob.solver.model)
     ub = getconstrUB(subprob.solver.model)
     for i in [term[1] for term in unique(term -> term[1],subprob.masterTerms)]
-        lb[i] = subprob.hlb[i]
-        ub[i] = subprob.hub[i]
+        lb[i] = subprob.h[1][i]
+        ub[i] = subprob.h[2][i]
     end
     for (i,j,coeff) in subprob.masterTerms
         lb[i] += coeff*x[j]
@@ -50,47 +48,7 @@ function updateSubProblem!(subprob::SubProblem,x::AbstractVector)
     setconstrUB!(subprob.solver.model, ub)
     subprob.x = x
 end
-
 updateSubProblems!(subprobs::Vector{SubProblem},x::AbstractVector) = map(prob -> updateSubProblem!(prob,x),subprobs)
-
-function getOptimalityCut(subprob::SubProblem)
-    @assert status(subprob.solver) == :Optimal "Trying to generate optimality cut from non-optimal subproblem"
-    λ = subprob.solver.λ
-    hl = subprob.hl
-    hu = subprob.hu
-    π = subprob.π
-
-    cols = zeros(length(subprob.masterTerms))
-    vals = zeros(length(subprob.masterTerms))
-    for (s,(i,j,coeff)) in enumerate(subprob.masterTerms)
-        cols[s] = j
-        vals[s] = -π*λ[i]*coeff
-    end
-    δQ = sparsevec(cols,vals,subprob.nMasterCols)
-    q = subprob.solver.obj - δQ⋅subprob.x
-
-    return OptimalityCut(δQ, q, subprob.id)
-end
-
-function getFeasibilityCut(subprob::SubProblem)
-    # @assert status(subprob.solver) == :Infeasible
-    # λ = subprob.solver.λ
-    # v = subprob.solver.v
-    # w = subprob.solver.w
-    # hl = subprob.hl
-    # hu = subprob.hu
-    # finite_hl = find(!isinf,hl)
-    # finite_hu = find(!isinf,hu)
-    # D = zeros(subprob.nMasterCols)
-
-    # d = v[finite_hl]⋅hl[finite_hl] + w[finite_hu]⋅hu[finite_hu]
-
-    # for (i,j,coeff) in subprob.masterTerms
-    #     D[j] -= λ[i]*coeff
-    # end
-
-    # return D, d
-end
 
 function (subprob::SubProblem)()
     subprob.solver()

@@ -64,8 +64,9 @@ end
 function prepareMaster!(lshaped::AbstractLShapedSolver,n::Integer)
     lshaped.masterSolver = LQSolver(lshaped.structuredModel)
 
+    # θs
     for i = 1:n
-        addvar!(lshaped.masterSolver.model,-1e19,Inf,1.0)
+        addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
     end
     append!(lshaped.masterSolver.x,zeros(n))
 end
@@ -107,7 +108,7 @@ useslocalization(LS) = (istrait(IsRegularized{LS}) || istrait(HasTrustRegion{LS}
 @traitfn function checkOptimality{LS <: AbstractLShapedSolver; UsesLocalization{LS}}(lshaped::LS)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
     c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    θ = c⋅lshaped.x + sum(lshaped.θs[lshaped.ready])
+    θ = c⋅lshaped.x + sum(lshaped.θs)
 
     if abs(θ - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
         return true
@@ -150,10 +151,8 @@ end
     lshaped.nscenarios = n
 
     prepareMaster!(lshaped,n)
-    lshaped.x = similar(m.colVal)
     lshaped.θs = fill(-Inf,n)
     lshaped.obj = Inf
-    lshaped.ready = falses(n)
 
     lshaped.subProblems = Vector{SubProblem}(n)
     π = getprobability(lshaped.structuredModel)

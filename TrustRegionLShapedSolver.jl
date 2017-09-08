@@ -1,8 +1,6 @@
 mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
-    masterModel::JuMPModel
-    masterProblem::LPProblem
     masterSolver::AbstractLQSolver
     x::AbstractVector
     obj::Real
@@ -27,8 +25,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     nMinorSteps::Integer
 
     # Cuts
-    θs
-    ready::BitArray
+    θs::AbstractVector
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
     cuts::Vector{AbstractHyperplane}
@@ -44,6 +41,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
             throw(ArgumentError(string("Incorrect length of regularizer, has ",length(ξ)," should be ",m.numCols)))
         end
 
+        lshaped.x = ξ
         lshaped.ξ = ξ
         lshaped.Q̃_hist = Float64[]
         lshaped.Δ = max(1.0,0.2*norm(ξ,Inf))
@@ -74,34 +72,28 @@ function Base.show(io::IO, lshaped::TrustRegionLShapedSolver)
 end
 
 function prepareMaster!(lshaped::TrustRegionLShapedSolver,n::Integer)
-    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
-    c = lshaped.structuredModel.obj.aff.coeffs
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
-    x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
+    lshaped.masterSolver = LQSolver(lshaped.structuredModel)
+    # θs
+    for i = 1:n
+        addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
+    end
+    lshaped.masterSolver.x = copy(lshaped.x)
+    append!(lshaped.masterSolver.x,fill(-Inf,n))
 
-    @objective(lshaped.masterModel,Min,sum(c.*x[objidx]) + sum(lshaped.θs))
-    lshaped.ready = falses(n)
-
-    p = LPProblem(lshaped.masterModel)
-    lshaped.masterProblem = p
-    lshaped.masterSolver = LQSolver(p)
     setTrustRegion!(lshaped)
 end
 
 @traitfn function setTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
-    l = lshaped.structuredModel.colLower
-    u = lshaped.structuredModel.colUpper
-    for i = 1:lshaped.structuredModel.numCols
-        lshaped.masterProblem.l[i] = max(l[i],lshaped.ξ[i]-lshaped.Δ)
-        lshaped.masterProblem.u[i] = min(u[i],lshaped.ξ[i]+lshaped.Δ)
-    end
-    setvarLB!(lshaped.masterSolver.model, lshaped.masterProblem.l)
-    setvarUB!(lshaped.masterSolver.model, lshaped.masterProblem.u)
+    l = max.(lshaped.structuredModel.colLower, lshaped.ξ-lshaped.Δ)
+    append!(l,fill(-Inf,lshaped.nscenarios))
+    u = min.(lshaped.structuredModel.colUpper, lshaped.ξ+lshaped.Δ)
+    append!(u,fill(Inf,lshaped.nscenarios))
+    setvarLB!(lshaped.masterSolver.model,l)
+    setvarUB!(lshaped.masterSolver.model,u)
 end
 
 @traitfn function takeTrustRegionStep!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
-    θ = sum(getvalue(lshaped.θs))
+    θ = sum(lshaped.θs)
     if lshaped.obj <= lshaped.Q̃ - lshaped.γ*abs(lshaped.Q̃-θ)
         println("Major step")
         lshaped.ξ = copy(lshaped.x)
@@ -117,7 +109,7 @@ end
 end
 
 @traitfn function enlargeTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
-    θ = sum(getvalue(lshaped.θs))
+    θ = sum(lshaped.θs)
     if abs(lshaped.obj - lshaped.Q̃) <= 0.5*(lshaped.Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.Δ <= lshaped.τ
         # Enlarge the trust-region radius
         lshaped.Δ = min(lshaped.Δ̅,2*lshaped.Δ)
@@ -130,7 +122,7 @@ end
 end
 
 @traitfn function reduceTrustRegion!{LS <: AbstractLShapedSolver; HasTrustRegion{LS}}(lshaped::LS)
-    θ = sum(getvalue(lshaped.θs))
+    θ = sum(lshaped.θs)
     ρ = min(1,lshaped.Δ)*(lshaped.obj-lshaped.Q̃)/(lshaped.Q̃-θ)
     @show ρ
     if ρ > 0
@@ -166,6 +158,7 @@ function (lshaped::TrustRegionLShapedSolver)()
     println("Starting trust-region L-Shaped procedure\n")
     println("======================")
     # Initial solve of subproblems at starting guess
+    println("Initial solve of subproblems at starting regularizer")
     updateSubProblems!(lshaped.subProblems,lshaped.ξ)
     map(s->addCut!(lshaped,s(),lshaped.ξ),lshaped.subProblems)
     lshaped.Q̃ = sum(lshaped.subObjectives)
@@ -173,7 +166,6 @@ function (lshaped::TrustRegionLShapedSolver)()
     # Initial solve of master problem
     println("Initial solve of master")
     lshaped.masterSolver()
-    updateSolution(lshaped.masterSolver,lshaped.masterModel)
     lshaped.status = status(lshaped.masterSolver)
     if lshaped.status == :Infeasible
         println("Master is infeasible, aborting procedure.")
@@ -222,8 +214,6 @@ function (lshaped::TrustRegionLShapedSolver)()
             println("======================")
             return
         end
-        updateSolution(lshaped.masterSolver,lshaped.masterModel)
-
         # Update master solution
         updateSolution!(lshaped)
         #removeCuts!(lshaped)

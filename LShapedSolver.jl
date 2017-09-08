@@ -12,7 +12,6 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs::AbstractVector
-    ready::BitArray
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
     cuts::Vector{AbstractHyperplane}
@@ -20,19 +19,25 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
     status::Symbol
     τ::Float64
 
-    function LShapedSolver(m::JuMPModel)
+    function LShapedSolver(m::JuMPModel,x₀::AbstractVector)
         lshaped = new(m)
 
+        lshaped.x = x₀
         lshaped.obj_hist = Float64[]
         init(lshaped)
 
         return lshaped
     end
 end
+LShapedSolver(m::JuMPModel) = LShapedSolver(m,rand(m.numCols))
 
 function (lshaped::LShapedSolver)()
     println("Starting L-Shaped procedure\n")
     println("======================")
+    println("Initial solve of subproblems at initial guess")
+    updateSubProblems!(lshaped.subProblems,lshaped.x)
+    map(s->addCut!(lshaped,s(),lshaped.x),lshaped.subProblems)
+    push!(lshaped.obj_hist,sum(lshaped.subObjectives))
     # Initial solve of master problem
     println("Initial solve of master")
     lshaped.masterSolver()
