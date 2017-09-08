@@ -11,16 +11,20 @@ function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
 end
 
 function updateSolution!(lshaped::AbstractLShapedSolver)
-    lshaped.x = lshaped.masterModel.colVal[1:lshaped.structuredModel.numCols]
+    lshaped.x = lshaped.masterSolver.x[1:lshaped.structuredModel.numCols]
+    lshaped.θs = lshaped.masterSolver.x[end-lshaped.nscenarios+1:end]
 end
 
 function updateObjectiveValue!(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+
     lshaped.obj = c⋅lshaped.x + sum(lshaped.subObjectives)
 end
 
 function updateStructuredModel!(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     lshaped.structuredModel.colVal = copy(lshaped.x)
     lshaped.structuredModel.objVal = c⋅lshaped.x + sum(lshaped.subObjectives)
     lshaped.structuredModel.objVal *= lshaped.structuredModel.objSense == :Min ? 1 : -1
@@ -58,15 +62,12 @@ function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
 end
 
 function prepareMaster!(lshaped::AbstractLShapedSolver,n::Integer)
-    lshaped.θs = @variable(lshaped.masterModel,θ[i = 1:n],start=-Inf)
-    @constraint(lshaped.masterModel,thetabound[i = 1:n],θ[i] >= -1e19)
-    lshaped.ready = falses(n)
+    lshaped.masterSolver = LQSolver(lshaped.structuredModel)
 
-    updateObjective!(lshaped)
-
-    p = LPProblem(lshaped.masterModel)
-    lshaped.masterProblem = p
-    lshaped.masterSolver = LPSolver(p)
+    for i = 1:n
+        addvar!(lshaped.masterSolver.model,-1e19,Inf,1.0)
+    end
+    append!(lshaped.masterSolver.x,zeros(n))
 end
 
 function resolveSubproblems!(lshaped::AbstractLShapedSolver)
@@ -93,15 +94,6 @@ end
 # ------------------------------------------------------------
 @traitdef IsRegularized{LS}
 
-@traitfn function updateObjective!{LS <: AbstractLShapedSolver; !IsRegularized{LS}}(lshaped::LS)
-    c = lshaped.structuredModel.obj.aff.coeffs
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
-    x = [Variable(lshaped.masterModel,i) for i in 1:(lshaped.structuredModel.numCols)]
-
-    @objective(lshaped.masterModel,Min,sum(c.*x[objidx]) + sum(lshaped.θs))
-end
-
 # HasTrustRegion -> Algorithm uses the trust-region method of Linderoth/Wright
 # ------------------------------------------------------------
 @traitdef HasTrustRegion{LS}
@@ -114,13 +106,10 @@ useslocalization(LS) = (istrait(IsRegularized{LS}) || istrait(HasTrustRegion{LS}
 
 @traitfn function checkOptimality{LS <: AbstractLShapedSolver; UsesLocalization{LS}}(lshaped::LS)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
-    z = c⋅lshaped.x + sum(getvalue(lshaped.θs[lshaped.ready]))
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+    θ = c⋅lshaped.x + sum(lshaped.θs[lshaped.ready])
 
-    @show z
-    @show lshaped.Q̃
-    @show abs(z-lshaped.Q̃)
-
-    if abs(z - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
+    if abs(θ - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
         return true
     else
         return false
@@ -129,7 +118,7 @@ end
 
 @traitfn function checkOptimality{LS <: AbstractLShapedSolver; !UsesLocalization{LS}}(lshaped::LS)
     Q = sum(lshaped.subObjectives)
-    θ = sum(getvalue(lshaped.θs))
+    θ = sum(lshaped.θs)
     return abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end
 
@@ -158,13 +147,14 @@ end
     m = lshaped.structuredModel
     @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
     n = num_scenarios(m)
-
-    extractMaster!(lshaped,m)
-    prepareMaster!(lshaped,n)
-    lshaped.x = m.colVal
-    lshaped.obj = Inf
-
     lshaped.nscenarios = n
+
+    prepareMaster!(lshaped,n)
+    lshaped.x = similar(m.colVal)
+    lshaped.θs = fill(-Inf,n)
+    lshaped.obj = Inf
+    lshaped.ready = falses(n)
+
     lshaped.subProblems = Vector{SubProblem}(n)
     π = getprobability(lshaped.structuredModel)
     for i = 1:n
@@ -181,5 +171,6 @@ end
 
 @traitfn function calculateObjective{LS <: AbstractLShapedSolver; !IsParallel{LS}}(lshaped::LS,x::AbstractVector)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     return c⋅x + sum([subprob.π*subprob(x) for subprob in lshaped.subProblems])
 end

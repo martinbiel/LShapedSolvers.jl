@@ -62,17 +62,9 @@ struct OptimalityCut <: AbstractHyperplane
 end
 
 function OptimalityCut(subprob::SubProblem)
-    @assert status(subprob.solver) == :Optimal "Trying to generate optimality cut from non-optimal subproblem"
+    @assert status(subprob.solver) == :Optimal
     λ = subprob.solver.λ
-    v = subprob.solver.v
-    w = subprob.solver.w
-    hl = subprob.hl
-    hu = subprob.hu
-    finite_hl = find(!isinf,hl)
-    finite_hu = find(!isinf,hu)
     π = subprob.π
-
-    q = π*v[finite_hl]⋅hl[finite_hl] + π*w[finite_hu]⋅hu[finite_hu]
 
     cols = zeros(length(subprob.masterTerms))
     vals = zeros(length(subprob.masterTerms))
@@ -80,7 +72,8 @@ function OptimalityCut(subprob::SubProblem)
         cols[s] = j
         vals[s] = -π*λ[i]*coeff
     end
-    δQ = sparsevec(cols,vals,subprob.nMasterCols)
+    δQ = sparsevec(cols,vals,length(subprob.x))
+    q = subprob.solver.obj+δQ⋅subprob.x
 
     return OptimalityCut(δQ, q, subprob.id)
 end
@@ -100,12 +93,11 @@ function lowlevel(cut::OptimalityCut)
     return nzind,nzval,cut.q,Inf
 end
 
-function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
-    m = lshaped.masterModel
-    cutIdx = m.numCols-nscenarios(lshaped)
+function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut,x::AbstractVector)
+    cutIdx = numvar(lshaped.masterSolver.model)
 
-    Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? getvalue(lshaped.θs[cut.id]) : -Inf
+    Q = cut(x)
+    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
     τ = lshaped.τ
 
     lshaped.subObjectives[cut.id] = Q
@@ -121,14 +113,10 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     end
 
     # Add optimality cut
-    @constraint(m,sum(cut.δQ[i]*Variable(m,i)
-                      for i = 1:cutIdx) + Variable(m,cutIdx+cut.id) >= cut.q)
+    # @constraint(m,sum(cut.δQ[i]*Variable(m,i)
+    #                   for i = 1:cutIdx) + Variable(m,cutIdx+cut.id) >= cut.q)
     lshaped.nOptimalityCuts += 1
-    if length(lshaped.masterModel.linconstr[end].terms.coeffs) > 10
-        println("Added Optimality Cut")
-    else
-        println("Added Optimality Cut: ", lshaped.masterModel.linconstr[end])
-    end
+    println("Added Optimality Cut")
     if istrait(IsRegularized{typeof(lshaped)})
         push!(lshaped.committee,cut)
         addconstr!(lshaped.internal,lowlevel(cut)...)
@@ -141,23 +129,24 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     push!(lshaped.cuts,cut)
     return true
 end
+addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut) = addCut!(lshaped,cut,lshaped.x)
 
 function optimal(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? getvalue(lshaped.θs[cut.id]) : -Inf
+    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(Q))
 end
 active(lshaped::AbstractLShapedSolver,cut::OptimalityCut) = optimal(lshaped,cut)
 
 function satisfied(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? getvalue(lshaped.θs[cut.id]) : -Inf
+    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
     return θ > -Inf && θ >= Q - lshaped.τ*(1+abs(Q))
 end
 
 function gap(lshaped::AbstractLShapedSolver,cut::OptimalityCut)
     Q = cut(lshaped.x)
-    θ = lshaped.ready[cut.id] ? getvalue(lshaped.θs[cut.id]) : -Inf
+    θ = lshaped.ready[cut.id] ? lshaped.θs[cut.id] : -Inf
     if θ > -Inf
         return θ-Q
     else
@@ -202,8 +191,7 @@ function (cut::FeasibilityCut)(x::AbstractVector)
 end
 
 function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
-    m = lshaped.masterModel
-    cutIdx = m.numCols-nscenarios(lshaped)
+    cutIdx = lshaped.masterSolver.lp.numCols
 
     D = cut.G
     d = cut.g
@@ -217,18 +205,20 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
     D = D/scaling
 
     # Add feasibility cut
-    @constraint(m,sum(D[i]*Variable(m,i)
-                      for i = 1:cutIdx) >= sign(d))
+    # @constraint(m,sum(D[i]*Variable(m,i)
+    #                   for i = 1:cutIdx) >= sign(d))
     lshaped.nFeasibilityCuts += 1
-    if length(lshaped.masterModel.linconstr[end].terms.coeffs) > 10
-        println("Added Feasibility Cut")
-    else
-        println("Added Feasibility Cut: ", lshaped.masterModel.linconstr[end])
-    end
+    println("Added Feasibility Cut")
     if istrait(IsRegularized{typeof(lshaped)})
         push!(lshaped.committee,cut)
         addconstr!(lshaped.internal,lowlevel(cut)...)
+    elseif istrait(HasTrustRegion{typeof(lshaped)})
+        push!(lshaped.committee,cut)
+        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+    else
+        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     end
+    push!(lshaped.cuts,cut)
     return true
 end
 

@@ -1,19 +1,18 @@
 mutable struct LShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
-    masterModel::JuMPModel
-    masterProblem::LPProblem
-    masterSolver::LPSolver
+    masterSolver::AbstractLQSolver
     x::AbstractVector
     obj::Real
+    obj_hist::AbstractVector
 
     nscenarios::Integer
     subProblems::Vector{SubProblem}
     subObjectives::AbstractVector
 
     # Cuts
-    θs
-    ready
+    θs::AbstractVector
+    ready::BitArray
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
     cuts::Vector{AbstractHyperplane}
@@ -24,8 +23,8 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
     function LShapedSolver(m::JuMPModel)
         lshaped = new(m)
 
+        lshaped.obj_hist = Float64[]
         init(lshaped)
-        lshaped.cuts = Vector{AbstractHyperplane}()
 
         return lshaped
     end
@@ -37,7 +36,6 @@ function (lshaped::LShapedSolver)()
     # Initial solve of master problem
     println("Initial solve of master")
     lshaped.masterSolver()
-    updateSolution(lshaped.masterSolver,lshaped.masterModel)
     lshaped.status = status(lshaped.masterSolver)
     if lshaped.status == :Infeasible
         println("Master is infeasible, aborting procedure.")
@@ -52,12 +50,15 @@ function (lshaped::LShapedSolver)()
     while true
         # Resolve all subproblems at the current optimal solution
         resolveSubproblems!(lshaped)
+        updateObjectiveValue!(lshaped)
+        push!(lshaped.obj_hist,lshaped.obj)
 
         if checkOptimality(lshaped)
             # Optimal
             lshaped.status = :Optimal
             updateStructuredModel!(lshaped)
             println("Optimal!")
+            println("Objective value: ", sum(lshaped.subObjectives))
             println("======================")
             break
         end
@@ -71,8 +72,6 @@ function (lshaped::LShapedSolver)()
             println("======================")
             return
         end
-        updateSolution(lshaped.masterSolver,lshaped.masterModel)
-
         # Update master solution
         updateSolution!(lshaped)
     end
