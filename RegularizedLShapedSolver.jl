@@ -44,20 +44,8 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 
         lshaped.x = ξ
         lshaped.ξ = ξ
-        lshaped.Q̃_hist = Float64[]
-        lshaped.σ = 1.0
-        lshaped.γ = 0.9
-        lshaped.Δ̅ = max(1.0,0.2*norm(ξ,Inf))
-        lshaped.Δ̅_hist = [lshaped.Δ̅]
-        lshaped.nExactSteps = 0
-        lshaped.nApproximateSteps = 0
-        lshaped.nNullSteps = 0
 
         init(lshaped)
-
-        lshaped.committee = linearconstraints(lshaped.structuredModel)
-        lshaped.inactive = Vector{AbstractHyperplane}()
-        lshaped.violating = PriorityQueue(Reverse)
 
         return lshaped
     end

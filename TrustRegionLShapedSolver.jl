@@ -43,21 +43,8 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
 
         lshaped.x = ξ
         lshaped.ξ = ξ
-        lshaped.Q̃_hist = Float64[]
-        lshaped.Δ = max(1.0,0.2*norm(ξ,Inf))
-        lshaped.Δ_hist = [lshaped.Δ]
-        lshaped.Δ̅ = 1000*lshaped.Δ
-        lshaped.cΔ = 0
-        lshaped.γ = 1e-4
-        lshaped.nMajorSteps = 0
-        lshaped.nMinorSteps = 0
 
         init(lshaped)
-
-        lshaped.committee = Vector{AbstractHyperplane}()
-        #lshaped.committee = linearconstraints(lshaped.structuredModel)
-        lshaped.inactive = Vector{AbstractHyperplane}()
-        lshaped.violating = PriorityQueue(Reverse)
 
         return lshaped
     end

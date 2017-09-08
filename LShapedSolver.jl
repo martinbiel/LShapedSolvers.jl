@@ -23,7 +23,6 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
         lshaped = new(m)
 
         lshaped.x = x₀
-        lshaped.obj_hist = Float64[]
         init(lshaped)
 
         return lshaped

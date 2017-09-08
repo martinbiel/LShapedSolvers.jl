@@ -150,10 +150,46 @@ end
     n = num_scenarios(m)
     lshaped.nscenarios = n
 
+    # Initialize variables specific to traits
+    if istrait(IsRegularized{LS})
+        lshaped.Q̃_hist = Float64[]
+        lshaped.σ = 1.0
+        lshaped.γ = 0.9
+        lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ̅_hist = [lshaped.Δ̅]
+
+        lshaped.nExactSteps = 0
+        lshaped.nApproximateSteps = 0
+        lshaped.nNullSteps = 0
+
+        lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    elseif istrait(HasTrustRegion{LS})
+        lshaped.Q̃_hist = Float64[]
+        lshaped.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ_hist = [lshaped.Δ]
+        lshaped.Δ̅ = 1000*lshaped.Δ
+        lshaped.cΔ = 0
+        lshaped.γ = 1e-4
+
+        lshaped.nMajorSteps = 0
+        lshaped.nMinorSteps = 0
+
+        lshaped.committee = Vector{AbstractHyperplane}()
+        #lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    else
+        lshaped.obj_hist = Float64[]
+    end
+
+    # Prepare the master optimization problem
     prepareMaster!(lshaped,n)
     lshaped.θs = fill(-Inf,n)
     lshaped.obj = Inf
 
+    # Prepare the subproblems
     lshaped.subProblems = Vector{SubProblem}(n)
     π = getprobability(lshaped.structuredModel)
     for i = 1:n
@@ -165,6 +201,7 @@ end
     lshaped.nOptimalityCuts = 0
     lshaped.nFeasibilityCuts = 0
 
+    # Set the tolerance
     lshaped.τ = 1e-6
 end
 
