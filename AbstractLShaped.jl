@@ -130,7 +130,7 @@ end
     end
     gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
     if isempty(lshaped.violating)
-        lshaped.violating = PriorityQueue(Reverse,zip(lshaped.inactive[violating],gaps))
+        lshaped.violating = PriorityQueue(lshaped.inactive[violating],gaps,Reverse)
     else
         for (c,g) in zip(lshaped.inactive[violating],gaps)
             enqueue!(lshaped.violating,c,g)

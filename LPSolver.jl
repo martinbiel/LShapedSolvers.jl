@@ -32,6 +32,7 @@ end
 function getConstrDuals(solver::AbstractLQSolver)
     λ = getconstrduals(solver.model)
     Ax = getconstrsolution(solver.model)
+
     lb = getconstrLB(solver.model)
     λl = zero(lb)
     ub = getconstrUB(solver.model)
@@ -88,7 +89,9 @@ mutable struct LQSolver <: AbstractLQSolver
 end
 
 function (solver::LQSolver)()
-    setwarmstart!(solver.model,solver.x)
+    if applicable(setwarmstart!,solver.model,solver.x)
+        setwarmstart!(solver.model,solver.x)
+    end
     optimize!(solver.model)
     solver.status = status(solver.model)
 

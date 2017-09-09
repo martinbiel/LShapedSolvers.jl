@@ -142,7 +142,7 @@ end
 end
 
 function (lshaped::TrustRegionLShapedSolver)()
-    println("Starting trust-region L-Shaped procedure\n")
+    println("Starting L-Shaped procedure with trust-region")
     println("======================")
     # Initial solve of subproblems at starting guess
     println("Initial solve of subproblems at starting regularizer")

@@ -31,7 +31,7 @@ end
 LShapedSolver(m::JuMPModel) = LShapedSolver(m,rand(m.numCols))
 
 function (lshaped::LShapedSolver)()
-    println("Starting L-Shaped procedure\n")
+    println("Starting L-Shaped procedure")
     println("======================")
     println("Initial solve of subproblems at initial guess")
     updateSubProblems!(lshaped.subProblems,lshaped.x)

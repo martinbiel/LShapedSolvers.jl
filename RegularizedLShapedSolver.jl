@@ -68,7 +68,7 @@ function prepareMaster!(lshaped::RegularizedLShapedSolver,n::Integer)
     lshaped.masterSolver.x = copy(lshaped.x)
     append!(lshaped.masterSolver.x,fill(-Inf,n))
 
-    lshaped.c = getobj(lshaped.masterSolver.model)
+    lshaped.c = JuMP.prepAffObjective(lshaped.structuredModel)
     updateObjective!(lshaped)
 end
 
@@ -83,7 +83,11 @@ function updateObjective!(lshaped::RegularizedLShapedSolver)
     qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
     qval = fill(1/lshaped.σ,length(lshaped.ξ))
     append!(qval,zeros(lshaped.nscenarios))
-    setquadobj!(lshaped.masterSolver.model,qidx,qidx,qval)
+    if applicable(setquadobj!,lshaped.masterSolver.model,qidx,qidx,qval)
+        setquadobj!(lshaped.masterSolver.model,qidx,qidx,qval)
+    else
+        error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
+    end
 end
 
 @traitfn function removeInactive!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
@@ -130,7 +134,7 @@ end
 end
 
 function (lshaped::RegularizedLShapedSolver)()
-    println("Starting regularized L-Shaped procedure\n")
+    println("Starting L-Shaped procedure with regularized decomposition")
     println("======================")
     # Initial solve of subproblems at starting guess
     println("Initial solve of subproblems at starting regularizer")

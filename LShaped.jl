@@ -40,6 +40,6 @@ include("Cut.jl")
 include("LShapedSolver.jl")
 include("RegularizedLShapedSolver.jl")
 include("TrustRegionLShapedSolver.jl")
-include("AsynchronousLShapedSolver.jl")
+#include("AsynchronousLShapedSolver.jl")
 
 end # module
