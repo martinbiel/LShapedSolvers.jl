@@ -28,6 +28,13 @@ function updateStructuredModel!(lshaped::AbstractLShapedSolver)
     lshaped.structuredModel.colVal = copy(lshaped.x)
     lshaped.structuredModel.objVal = c⋅lshaped.x + sum(lshaped.subObjectives)
     lshaped.structuredModel.objVal *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+
+    for i in 1:lshaped.nscenarios
+        m = getchildren(lshaped.structuredModel)[i]
+        m.colVal = copy(lshaped.subProblems[i].solver.x)
+        m.objVal = copy(lshaped.subProblems[i].solver.obj)
+        m.objVal *= m.objSense == :Min ? 1 : -1
+    end
 end
 
 function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
@@ -120,7 +127,7 @@ end
 @traitfn function checkOptimality{LS <: AbstractLShapedSolver; !UsesLocalization{LS}}(lshaped::LS)
     Q = sum(lshaped.subObjectives)
     θ = sum(lshaped.θs)
-    return abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+    return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end
 
 @traitfn function queueViolated!{LS <: AbstractLShapedSolver; UsesLocalization{LS}}(lshaped::LS)
@@ -152,6 +159,7 @@ end
 
     # Initialize variables specific to traits
     if istrait(IsRegularized{LS})
+        lshaped.Q̃ = Inf
         lshaped.Q̃_hist = Float64[]
         lshaped.σ = 1.0
         lshaped.γ = 0.9
@@ -166,6 +174,7 @@ end
         lshaped.inactive = Vector{AbstractHyperplane}()
         lshaped.violating = PriorityQueue(Reverse)
     elseif istrait(HasTrustRegion{LS})
+        lshaped.Q̃ = Inf
         lshaped.Q̃_hist = Float64[]
         lshaped.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
         lshaped.Δ_hist = [lshaped.Δ]

@@ -1,54 +1,51 @@
 mutable struct AsynchronousLShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
-    masterModel::JuMPModel
-    masterSolver::AbstractMathProgSolver
-    gurobienv::Gurobi.Env
+    # Master
+    masterSolver::AbstractLQSolver
+    x::AbstractVector
+    obj::Real
+    obj_hist::AbstractVector
 
-    # Regularizer
-    a::Vector{Float64}
-    Qa::Float64
+    # Subproblems
+    nscenarios::Integer
+    subObjectives::AbstractVector
 
     # Workers
     readyworkers::RemoteChannel
     subworkers::Vector{RemoteChannel}
+    cutQueue::RemoteChannel
     mastervector::RemoteChannel
 
-    subObjectives::AbstractVector
-
     # Cuts
-    θs
-    ready
-    cuts::RemoteChannel
-    numOptimalityCuts::Integer
-    numFeasibilityCuts::Integer
+    θs::AbstractVector
+    cuts::Vector{AbstractHyperplane}
+    nOptimalityCuts::Integer
+    nFeasibilityCuts::Integer
 
     status::Symbol
     τ::Float64
 
-    function AsynchronousLShapedSolver(m::JuMPModel,a::Vector{Float64})
+    function AsynchronousLShapedSolver(m::JuMPModel,x₀::AbstractVector)
+        if nworkers() == 1
+            warn("There are no worker processes, defaulting to serial version of algorithm")
+            return LShapedSolver(m,x₀)
+        end
         lshaped = new(m)
 
-        if length(a) != m.numCols
-            throw(ArgumentError(string("Incorrect length of regularizer, has ",length(a)," should be ",m.numCols)))
+        if length(x₀) != m.numCols
+            throw(ArgumentError(string("Incorrect length of starting guess, has ",length(x₀)," should be ",m.numCols)))
         end
 
-        lshaped.a = a
+        lshaped.x = x₀
         init(lshaped)
-        lshaped.Qa = calculateObjective(lshaped,a)
 
         return lshaped
     end
 end
+AsynchronousLShapedSolver(m::JuMPModel) = AsynchronousLShapedSolver(m,rand(m.numCols))
 
 @traitimpl IsParallel{AsynchronousLShapedSolver}
-@traitimpl IsRegularized{AsynchronousLShapedSolver}
-
-AsynchronousLShapedSolver(m::JuMPModel,a::AbstractVector) = AsynchronousLShapedSolver(m,convert(Vector{Float64},a))
-
-function nscenarios(lshaped::AsynchronousLShapedSolver)
-    return sum([length(fetch(subworker)) for subworker in lshaped.subworkers])
-end
 
 function init_subworker(subworker::RemoteChannel,parent::JuMPModel,submodels::Vector{JuMPModel},πs::AbstractVector,ids::AbstractVector)
     subproblems = Vector{SubProblem}(length(ids))
@@ -64,6 +61,7 @@ function work_on_subproblems(subworker::RemoteChannel,cuts::RemoteChannel,readyw
     for subprob in subproblems
         println("Solving subproblem: ",subprob.id)
         put!(cuts,subprob())
+        println("Subproblem: ",subprob.id," solved")
     end
     put!(readyworkers,myid())
 end
@@ -85,15 +83,53 @@ end
     m = lshaped.structuredModel
     @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
     n = num_scenarios(m)
+    lshaped.nscenarios = n
+
+        # Initialize variables specific to traits
+    if istrait(IsRegularized{LS})
+        lshaped.Q̃_hist = Float64[]
+        lshaped.σ = 1.0
+        lshaped.γ = 0.9
+        lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ̅_hist = [lshaped.Δ̅]
+
+        lshaped.nExactSteps = 0
+        lshaped.nApproximateSteps = 0
+        lshaped.nNullSteps = 0
+
+        lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    elseif istrait(HasTrustRegion{LS})
+        lshaped.Q̃_hist = Float64[]
+        lshaped.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ_hist = [lshaped.Δ]
+        lshaped.Δ̅ = 1000*lshaped.Δ
+        lshaped.cΔ = 0
+        lshaped.γ = 1e-4
+
+        lshaped.nMajorSteps = 0
+        lshaped.nMinorSteps = 0
+
+        lshaped.committee = Vector{AbstractHyperplane}()
+        #lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    else
+        lshaped.obj_hist = Float64[]
+    end
 
     # Master problem (On Master process)
-    extractMaster!(lshaped,m)
     prepareMaster!(lshaped,n)
+    lshaped.θs = fill(-Inf,n)
+    lshaped.obj = Inf
 
     # Workers
     lshaped.readyworkers = RemoteChannel(() -> Channel{Int}(nworkers()),1)
     lshaped.subworkers = Vector{RemoteChannel}(nworkers())
+    lshaped.cutQueue = RemoteChannel(() -> Channel{AbstractHyperplane}(2*n))
     lshaped.mastervector = RemoteChannel(() -> Channel{AbstractVector}(1),1)
+    put!(lshaped.mastervector,lshaped.x)
     (jobLength,extra) = divrem(n,nworkers())
     # One extra to guarantee coverage
     if extra > 0
@@ -117,10 +153,11 @@ end
         stop += jobLength
         stop = min(stop,n)
     end
+    lshaped.subObjectives = zeros(n)
 
-    lshaped.cuts = RemoteChannel(() -> Channel{AbstractHyperplane}(2*n))
-    lshaped.numOptimalityCuts = 0
-    lshaped.numFeasibilityCuts = 0
+    lshaped.cuts = Vector{AbstractHyperplane}()
+    lshaped.nOptimalityCuts = 0
+    lshaped.nFeasibilityCuts = 0
 
     lshaped.τ = 1e-6
 end
@@ -134,18 +171,8 @@ end
 end
 
 function (lshaped::AsynchronousLShapedSolver)()
-    println("Starting paralell L-Shaped procedure\n")
+    println("Starting asynchronous L-Shaped procedure\n")
     println("======================")
-    # Initial solve of master problem
-    println("Initial solve of master")
-    lshaped.status = solve(lshaped.masterModel)
-    if lshaped.status == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
-        return
-    end
-    updateMasterSolution!(lshaped)
-    put!(lshaped.mastervector,lshaped.structuredModel.colVal)
 
     updatedMaster = true
     addedCut = false
@@ -166,15 +193,15 @@ function (lshaped::AsynchronousLShapedSolver)()
             # Update outdated workers with the latest master column
             push!(encountered,w)
             println("Send work to ",w)
-            @spawnat w work_on_subproblems(lshaped.subworkers[w-1],lshaped.cuts,lshaped.readyworkers,lshaped.mastervector)
+            @spawnat w work_on_subproblems(lshaped.subworkers[w-1],lshaped.cutQueue,lshaped.readyworkers,lshaped.mastervector)
         end
-
-        if isready(lshaped.cuts)
+        println("SUP")
+        if isready(lshaped.cutQueue)
             println("Cuts are ready")
             empty!(encountered)
-            while isready(lshaped.cuts)
+            while isready(lshaped.cutQueue)
                 # Add new cuts from subworkers
-                cut = take!(lshaped.cuts)
+                cut = take!(lshaped.cutQueue)
                 if !proper(cut)
                     println("Subproblem ",cut.id," is unbounded, aborting procedure.")
                     println("======================")
@@ -182,44 +209,22 @@ function (lshaped::AsynchronousLShapedSolver)()
                 end
                 addedCut |= addCut!(lshaped,cut)
             end
-            # Resolve master problem
-            obj = getobjectivevalue(lshaped.structuredModel)
-            obj *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-            if !addedCut || (obj - lshaped.Qa) <= lshaped.τ
-                lshaped.a = lshaped.structuredModel.colVal
-                lshaped.Qa = obj
-            end
-
-            updateObjective!(lshaped)
 
             # Resolve master
             println("Solving master problem")
-            lshaped.status = solve(lshaped.masterModel)
-            if lshaped.status != :Optimal
-                setparam!(lshaped.gurobienv,"Presolve",2)
-                setparam!(lshaped.gurobienv,"BarHomogeneous",1)
-                lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
-                setsolver(lshaped.masterModel,lshaped.masterSolver)
-                lshaped.status = solve(lshaped.masterModel)
-                if lshaped.status == :Optimal
-                    setparam!(lshaped.gurobienv,"Presolve",-1)
-                    setparam!(lshaped.gurobienv,"BarHomogeneous",-1)
-                    lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
-                    setsolver(lshaped.masterModel,lshaped.masterSolver)
-                else
-                    if lshaped.status == :Infeasible
-                        println("Master is infeasible, aborting procedure.")
-                    else
-                        println("Master could not be solved, aborting procedure")
-                    end
-                    println("======================")
-                    return
-                end
+            lshaped.masterSolver()
+            lshaped.status = status(lshaped.masterSolver)
+            if lshaped.status == :Infeasible
+                println("Master is infeasible, aborting procedure.")
+                println("======================")
+                return
             end
             # Update master solution
-            updateMasterSolution!(lshaped)
+            updateSolution!(lshaped)
+            updateObjectiveValue!(lshaped)
+            push!(lshaped.obj_hist,lshaped.obj)
             take!(lshaped.mastervector)
-            put!(lshaped.mastervector,lshaped.structuredModel.colVal)
+            put!(lshaped.mastervector,lshaped.x)
             updatedMaster = true
 
             if checkOptimality(lshaped)
@@ -235,5 +240,4 @@ function (lshaped::AsynchronousLShapedSolver)()
             updatedMaster = false
         end
     end
-    println("Loop end")
 end

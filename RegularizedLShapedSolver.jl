@@ -26,16 +26,16 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs
+    cuts::Vector{AbstractHyperplane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
-    cuts::Vector{AbstractHyperplane}
 
     status::Symbol
     σ::Real
     γ::Real
     τ::Real
 
-    function RegularizedLShapedSolver(m::JuMPModel,ξ::Vector{Float64})
+    function RegularizedLShapedSolver(m::JuMPModel,ξ::AbstractVector)
         lshaped = new(m)
 
         if length(ξ) != m.numCols
@@ -52,8 +52,6 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 end
 
 @traitimpl IsRegularized{RegularizedLShapedSolver}
-
-RegularizedLShapedSolver(m::JuMPModel,ξ::AbstractVector) = RegularizedLShapedSolver(m,convert(Vector{Float64},ξ))
 
 function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
     print(io,"RegularizedLShapedSolver")

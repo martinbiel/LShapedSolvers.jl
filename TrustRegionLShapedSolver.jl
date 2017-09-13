@@ -26,15 +26,15 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs::AbstractVector
+    cuts::Vector{AbstractHyperplane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
-    cuts::Vector{AbstractHyperplane}
 
     status::Symbol
     γ::Real
     τ::Real
 
-    function TrustRegionLShapedSolver(m::JuMPModel,ξ::Vector{Float64})
+    function TrustRegionLShapedSolver(m::JuMPModel,ξ::AbstractVector)
         lshaped = new(m)
 
         if length(ξ) != m.numCols
@@ -51,8 +51,6 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
 end
 
 @traitimpl HasTrustRegion{TrustRegionLShapedSolver}
-
-TrustRegionLShapedSolver(m::JuMPModel,ξ::AbstractVector) = TrustRegionLShapedSolver(m,convert(Vector{Float64},ξ))
 
 function Base.show(io::IO, lshaped::TrustRegionLShapedSolver)
     print(io,"TrustRegionLShapedSolver")

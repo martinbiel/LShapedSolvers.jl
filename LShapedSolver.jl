@@ -1,26 +1,32 @@
 mutable struct LShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
+    # Master
     masterSolver::AbstractLQSolver
     x::AbstractVector
     obj::Real
     obj_hist::AbstractVector
 
+    # Subproblems
     nscenarios::Integer
     subProblems::Vector{SubProblem}
     subObjectives::AbstractVector
 
     # Cuts
     θs::AbstractVector
+    cuts::Vector{AbstractHyperplane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
-    cuts::Vector{AbstractHyperplane}
 
     status::Symbol
     τ::Float64
 
     function LShapedSolver(m::JuMPModel,x₀::AbstractVector)
         lshaped = new(m)
+
+        if length(x₀) != m.numCols
+            throw(ArgumentError(string("Incorrect length of starting guess, has ",length(x₀)," should be ",m.numCols)))
+        end
 
         lshaped.x = x₀
         init(lshaped)
@@ -33,20 +39,6 @@ LShapedSolver(m::JuMPModel) = LShapedSolver(m,rand(m.numCols))
 function (lshaped::LShapedSolver)()
     println("Starting L-Shaped procedure")
     println("======================")
-    println("Initial solve of subproblems at initial guess")
-    updateSubProblems!(lshaped.subProblems,lshaped.x)
-    map(s->addCut!(lshaped,s(),lshaped.x),lshaped.subProblems)
-    push!(lshaped.obj_hist,sum(lshaped.subObjectives))
-    # Initial solve of master problem
-    println("Initial solve of master")
-    lshaped.masterSolver()
-    lshaped.status = status(lshaped.masterSolver)
-    if lshaped.status == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
-        return
-    end
-    updateSolution!(lshaped)
 
     println("Main loop")
     println("======================")
