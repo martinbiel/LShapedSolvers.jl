@@ -1,6 +1,7 @@
 mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
+    # Master
     masterSolver::AbstractLQSolver
     x::AbstractVector
     obj::Real
@@ -9,6 +10,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     inactive::Vector{AbstractHyperplane}
     violating::PriorityQueue
 
+    # Subproblems
     nscenarios::Integer
     subProblems::Vector{SubProblem}
     subObjectives::AbstractVector
@@ -30,6 +32,7 @@ mutable struct TrustRegionLShapedSolver <: AbstractLShapedSolver
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
 
+    # Params
     status::Symbol
     γ::Real
     τ::Real

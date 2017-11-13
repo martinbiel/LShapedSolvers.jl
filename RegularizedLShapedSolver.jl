@@ -1,6 +1,7 @@
 mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     structuredModel::JuMPModel
 
+    # Master
     masterSolver::AbstractLQSolver
     c::AbstractVector
     x::AbstractVector
@@ -10,6 +11,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     inactive::Vector{AbstractHyperplane}
     violating::PriorityQueue
 
+    # Subproblems
     nscenarios::Integer
     subProblems::Vector{SubProblem}
     subObjectives::AbstractVector
@@ -25,11 +27,12 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     nNullSteps::Integer
 
     # Cuts
-    θs
+    θs::AbstractVector
     cuts::Vector{AbstractHyperplane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
 
+    # Params
     status::Symbol
     σ::Real
     γ::Real

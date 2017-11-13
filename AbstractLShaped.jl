@@ -10,8 +10,108 @@ function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
     show(io,lshaped)
 end
 
+# Initialization #
+# ======================================================================== #
+function init{LS <: AbstractLShapedSolver}(lshaped::LS)
+    m = lshaped.structuredModel
+    @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
+    lshaped.nscenarios = num_scenarios(m)
+
+    # Initialize variables specific to traits
+    if istrait(IsRegularized{LS})
+        lshaped.Q̃ = Inf
+        lshaped.Q̃_hist = Float64[]
+        lshaped.σ = 1.0
+        lshaped.γ = 0.9
+        lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ̅_hist = [lshaped.Δ̅]
+
+        lshaped.nExactSteps = 0
+        lshaped.nApproximateSteps = 0
+        lshaped.nNullSteps = 0
+
+        lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    elseif istrait(HasTrustRegion{LS})
+        lshaped.Q̃ = Inf
+        lshaped.Q̃_hist = Float64[]
+        lshaped.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+        lshaped.Δ_hist = [lshaped.Δ]
+        lshaped.Δ̅ = 1000*lshaped.Δ
+        lshaped.cΔ = 0
+        lshaped.γ = 1e-4
+
+        lshaped.nMajorSteps = 0
+        lshaped.nMinorSteps = 0
+
+        lshaped.committee = Vector{AbstractHyperplane}()
+        #lshaped.committee = linearconstraints(lshaped.structuredModel)
+        lshaped.inactive = Vector{AbstractHyperplane}()
+        lshaped.violating = PriorityQueue(Reverse)
+    else
+        lshaped.obj_hist = Float64[]
+    end
+
+    # Prepare the master optimization problem
+    prepareMaster!(lshaped)
+    lshaped.θs = fill(-Inf,lshaped.nscenarios)
+    lshaped.obj = Inf
+
+    if istrait(IsParallel{LS})
+        # Workers
+        lshaped.subworkers = Vector{RemoteChannel}(nworkers())
+        lshaped.cutQueue = RemoteChannel(() -> Channel{AbstractHyperplane}(4*nworkers()*lshaped.nscenarios))
+        lshaped.masterColumns = Vector{RemoteChannel}(nworkers())
+        (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
+        # One extra to guarantee coverage
+        if extra > 0
+            jobLength += 1
+        end
+
+        # Create subproblems on worker processes
+        start = 1
+        stop = jobLength
+        @sync for w in workers()
+            lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem}}(1), w)
+            lshaped.masterColumns[w-1] = RemoteChannel(() -> Channel{AbstractVector}(5), w)
+            put!(lshaped.masterColumns[w-1],lshaped.x)
+            submodels = [getchildren(m)[i] for i = start:stop]
+            πs = [getprobability(lshaped.structuredModel)[i] for i = start:stop]
+            @spawnat w init_subworker(lshaped.subworkers[w-1],m,submodels,πs,collect(start:stop))
+            if start > lshaped.nscenarios
+                continue
+            end
+            start += jobLength
+            stop += jobLength
+            stop = min(stop,lshaped.nscenarios)
+        end
+    else
+        # Prepare the subproblems
+        lshaped.subProblems = Vector{SubProblem}(lshaped.nscenarios)
+        π = getprobability(lshaped.structuredModel)
+        for i = 1:lshaped.nscenarios
+            lshaped.subProblems[i] = SubProblem(getchildren(m)[i],m,i,π[i])
+        end
+    end
+
+    lshaped.subObjectives = zeros(lshaped.nscenarios)
+
+    lshaped.cuts = Vector{AbstractHyperplane}()
+    lshaped.nOptimalityCuts = 0
+    lshaped.nFeasibilityCuts = 0
+
+    # Set the tolerance
+    lshaped.τ = 1e-6
+
+    lshaped
+end
+# ======================================================================== #
+
+# Functions #
+# ======================================================================== #
 function updateSolution!(lshaped::AbstractLShapedSolver)
-    lshaped.x = lshaped.masterSolver.x[1:lshaped.structuredModel.numCols]
+    lshaped.x[1:lshaped.structuredModel.numCols] = lshaped.masterSolver.x[1:lshaped.structuredModel.numCols]
     lshaped.θs = lshaped.masterSolver.x[end-lshaped.nscenarios+1:end]
 end
 
@@ -68,14 +168,14 @@ function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
     lshaped.masterModel = master
 end
 
-function prepareMaster!(lshaped::AbstractLShapedSolver,n::Integer)
+function prepareMaster!(lshaped::AbstractLShapedSolver)
     lshaped.masterSolver = LQSolver(lshaped.structuredModel)
 
     # θs
-    for i = 1:n
+    for i = 1:lshaped.nscenarios
         addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
     end
-    append!(lshaped.masterSolver.x,zeros(n))
+    append!(lshaped.masterSolver.x,zeros(lshaped.nscenarios))
 end
 
 function resolveSubproblems!(lshaped::AbstractLShapedSolver)
@@ -94,19 +194,55 @@ function resolveSubproblems!(lshaped::AbstractLShapedSolver)
         addCut!(lshaped,cut)
     end
 end
+# ======================================================================== #
+
+# Parallel routines #
+# ======================================================================== #
+function init_subworker(subworker::RemoteChannel,parent::JuMPModel,submodels::Vector{JuMPModel},πs::AbstractVector,ids::AbstractVector)
+    subproblems = Vector{SubProblem}(length(ids))
+    for (i,id) = enumerate(ids)
+        subproblems[i] = SubProblem(submodels[i],parent,id,πs[i])
+    end
+    put!(subworker,subproblems)
+end
+
+function work_on_subproblems(subworker::RemoteChannel,cuts::RemoteChannel,rx::RemoteChannel)
+    subproblems = fetch(subworker)
+    while true
+        wait(rx)
+        x = take!(rx)
+        if isempty(x)
+            println("Worker finished")
+            return
+        end
+        updateSubProblems!(subproblems,x)
+        for subprob in subproblems
+            println("Solving subproblem: ",subprob.id)
+            put!(cuts,subprob())
+            println("Subproblem: ",subprob.id," solved")
+        end
+    end
+end
+
+function calculate_subobjective(subworker::RemoteChannel,x::AbstractVector)
+    subproblems = fetch(subworker)
+    if length(subproblems) > 0
+        return sum([subprob.π*subprob(x) for subprob in subproblems])
+    else
+        return zero(eltype(x))
+    end
+end
+
+# ======================================================================== #
 
 # TRAITS #
-# ================== #
-
+# ======================================================================== #
 # IsRegularized -> Algorithm uses the regularized decomposition method of Ruszczyński
-# ------------------------------------------------------------
 @traitdef IsRegularized{LS}
-
+# ------------------------------------------------------------------------ #
 # HasTrustRegion -> Algorithm uses the trust-region method of Linderoth/Wright
-# ------------------------------------------------------------
 @traitdef HasTrustRegion{LS}
-
-
+# ------------------------------------------------------------------------ #
 # UsesLocalization -> Algorithm uses some localization method, applies to both IsRegularized and HasTrustRegion
 @traitdef UsesLocalization{LS}
 useslocalization(LS) = (istrait(IsRegularized{LS}) || istrait(HasTrustRegion{LS}))
@@ -137,7 +273,7 @@ end
     end
     gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
     if isempty(lshaped.violating)
-        lshaped.violating = PriorityQueue(lshaped.inactive[violating],gaps,Reverse)
+        lshaped.violating = PriorityQueue(Reverse,zip(lshaped.inactive[violating],gaps))
     else
         for (c,g) in zip(lshaped.inactive[violating],gaps)
             enqueue!(lshaped.violating,c,g)
@@ -146,72 +282,16 @@ end
     deleteat!(lshaped.inactive,violating)
     return true
 end
-
+# ------------------------------------------------------------------------ #
 # IsParallel -> Algorithm is run in parallel
-# ------------------------------------------------------------
 @traitdef IsParallel{LS}
 
-@traitfn function init{LS <: AbstractLShapedSolver; !IsParallel{LS}}(lshaped::LS)
-    m = lshaped.structuredModel
-    @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
-    n = num_scenarios(m)
-    lshaped.nscenarios = n
+@traitfn function calculateObjective{LS <: AbstractLShapedSolver; IsParallel{LS}}(lshaped::LS,x::AbstractVector)
+    c = lshaped.structuredModel.obj.aff.coeffs
+    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+    objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
 
-    # Initialize variables specific to traits
-    if istrait(IsRegularized{LS})
-        lshaped.Q̃ = Inf
-        lshaped.Q̃_hist = Float64[]
-        lshaped.σ = 1.0
-        lshaped.γ = 0.9
-        lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
-        lshaped.Δ̅_hist = [lshaped.Δ̅]
-
-        lshaped.nExactSteps = 0
-        lshaped.nApproximateSteps = 0
-        lshaped.nNullSteps = 0
-
-        lshaped.committee = linearconstraints(lshaped.structuredModel)
-        lshaped.inactive = Vector{AbstractHyperplane}()
-        lshaped.violating = PriorityQueue(Reverse)
-    elseif istrait(HasTrustRegion{LS})
-        lshaped.Q̃ = Inf
-        lshaped.Q̃_hist = Float64[]
-        lshaped.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
-        lshaped.Δ_hist = [lshaped.Δ]
-        lshaped.Δ̅ = 1000*lshaped.Δ
-        lshaped.cΔ = 0
-        lshaped.γ = 1e-4
-
-        lshaped.nMajorSteps = 0
-        lshaped.nMinorSteps = 0
-
-        lshaped.committee = Vector{AbstractHyperplane}()
-        #lshaped.committee = linearconstraints(lshaped.structuredModel)
-        lshaped.inactive = Vector{AbstractHyperplane}()
-        lshaped.violating = PriorityQueue(Reverse)
-    else
-        lshaped.obj_hist = Float64[]
-    end
-
-    # Prepare the master optimization problem
-    prepareMaster!(lshaped,n)
-    lshaped.θs = fill(-Inf,n)
-    lshaped.obj = Inf
-
-    # Prepare the subproblems
-    lshaped.subProblems = Vector{SubProblem}(n)
-    π = getprobability(lshaped.structuredModel)
-    for i = 1:n
-        lshaped.subProblems[i] = SubProblem(getchildren(m)[i],m,i,π[i])
-    end
-    lshaped.subObjectives = zeros(n)
-
-    lshaped.cuts = Vector{AbstractHyperplane}()
-    lshaped.nOptimalityCuts = 0
-    lshaped.nFeasibilityCuts = 0
-
-    # Set the tolerance
-    lshaped.τ = 1e-6
+    return c⋅x[objidx] + sum(fetch.([@spawnat w calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
 end
 
 @traitfn function calculateObjective{LS <: AbstractLShapedSolver; !IsParallel{LS}}(lshaped::LS,x::AbstractVector)
@@ -219,3 +299,6 @@ end
     c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     return c⋅x + sum([subprob.π*subprob(x) for subprob in lshaped.subProblems])
 end
+# ------------------------------------------------------------------------ #
+
+# ======================================================================== #

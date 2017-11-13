@@ -1,6 +1,5 @@
 module LShaped
 
-
 using SimpleTraits
 using JuMP
 using StructJuMP
@@ -40,6 +39,5 @@ include("Cut.jl")
 include("LShapedSolver.jl")
 include("RegularizedLShapedSolver.jl")
 include("TrustRegionLShapedSolver.jl")
-#include("AsynchronousLShapedSolver.jl")
 
 end # module
