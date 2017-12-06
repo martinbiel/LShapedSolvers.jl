@@ -1,6 +1,6 @@
 module LShaped
 
-using SimpleTraits
+using TraitDispatch
 using JuMP
 using StructJuMP
 using Clp

@@ -112,10 +112,10 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::OptimalityCut,x::AbstractVe
 
     lshaped.nOptimalityCuts += 1
     println("Added Optimality Cut")
-    if istrait(IsRegularized{typeof(lshaped)})
+    if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
-    elseif istrait(HasTrustRegion{typeof(lshaped)})
+    elseif hastrait(lshaped,HasTrustRegion)
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     else
@@ -193,10 +193,10 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::FeasibilityCut)
 
     lshaped.nFeasibilityCuts += 1
     println("Added Feasibility Cut")
-    if istrait(IsRegularized{typeof(lshaped)})
+    if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
-    elseif istrait(HasTrustRegion{typeof(lshaped)})
+    elseif hastrait(lshaped,HasTrustRegion)
         push!(lshaped.committee,cut)
         addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
     else

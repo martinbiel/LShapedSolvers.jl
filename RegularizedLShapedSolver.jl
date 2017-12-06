@@ -54,7 +54,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     end
 end
 
-@traitimpl IsRegularized{RegularizedLShapedSolver}
+@implement_trait RegularizedLShapedSolver UsesLocalization IsRegularized
 
 function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
     print(io,"RegularizedLShapedSolver")
@@ -88,49 +88,6 @@ function updateObjective!(lshaped::RegularizedLShapedSolver)
         setquadobj!(lshaped.masterSolver.model,qidx,qidx,qval)
     else
         error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
-    end
-end
-
-@traitfn function removeInactive!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    inactive = find(c->!active(lshaped,c),lshaped.committee)
-    diff = length(lshaped.committee) - length(lshaped.structuredModel.linconstr) - lshaped.nscenarios
-    if isempty(inactive) || diff <= 0
-        return false
-    end
-    if diff <= length(inactive)
-        inactive = inactive[1:diff]
-    end
-    append!(lshaped.inactive,lshaped.committee[inactive])
-    deleteat!(lshaped.committee,inactive)
-    delconstrs!(lshaped.masterSolver.model,inactive)
-    return true
-end
-
-@traitfn function takeRegularizedStep!{LS <: AbstractLShapedSolver; IsRegularized{LS}}(lshaped::LS)
-    θ = sum(lshaped.θs)
-    if abs(θ-lshaped.obj) <= lshaped.τ*(1+abs(lshaped.obj))
-        println("Exact serious step")
-        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
-        lshaped.ξ = copy(lshaped.x)
-        lshaped.Q̃ = lshaped.obj
-        push!(lshaped.Q̃_hist,lshaped.Q̃)
-        lshaped.nExactSteps += 1
-        lshaped.σ *= 4
-        updateObjective!(lshaped)
-    elseif lshaped.obj <= lshaped.γ*lshaped.Q̃ + (1-lshaped.γ)*θ + lshaped.τ
-        println("Approximate serious step")
-        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
-        lshaped.ξ = copy(lshaped.x)
-        lshaped.Q̃ = lshaped.obj
-        push!(lshaped.Q̃_hist,lshaped.Q̃)
-        lshaped.nApproximateSteps += 1
-    else
-        println("Null step")
-        lshaped.nNullSteps += 1
-        lshaped.σ *= 0.9
-        updateObjective!(lshaped)
     end
 end
 
@@ -233,4 +190,69 @@ function (lshaped::RegularizedLShapedSolver)()
             end
         end
     end
+end
+
+
+## Trait functions
+# ------------------------------------------------------------
+@define_traitfn UsesLocalization removeInactive!(lshaped::AbstractLShapedSolver)
+@define_traitfn UsesLocalization takeRegularizedStep!(lshaped::AbstractLShapedSolver)
+
+@implement_traitfn IsRegularized function initSolverData!(lshaped::AbstractLShapedSolver)
+    lshaped.Q̃_hist = Float64[]
+    lshaped.σ = 1.0
+    lshaped.γ = 0.9
+    lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+    lshaped.Δ̅_hist = [lshaped.Δ̅]
+
+    lshaped.nExactSteps = 0
+    lshaped.nApproximateSteps = 0
+    lshaped.nNullSteps = 0
+
+    lshaped.committee = linearconstraints(lshaped.structuredModel)
+    lshaped.inactive = Vector{AbstractHyperplane}()
+    lshaped.violating = PriorityQueue(Reverse)
+end
+
+@implement_traitfn IsRegularized function takeRegularizedStep!(lshaped::AbstractLShapedSolver)
+    θ = sum(lshaped.θs)
+    if abs(θ-lshaped.obj) <= lshaped.τ*(1+abs(lshaped.obj))
+        println("Exact serious step")
+        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
+        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
+        lshaped.ξ = copy(lshaped.x)
+        lshaped.Q̃ = lshaped.obj
+        push!(lshaped.Q̃_hist,lshaped.Q̃)
+        lshaped.nExactSteps += 1
+        lshaped.σ *= 4
+        updateObjective!(lshaped)
+    elseif lshaped.obj <= lshaped.γ*lshaped.Q̃ + (1-lshaped.γ)*θ + lshaped.τ
+        println("Approximate serious step")
+        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
+        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
+        lshaped.ξ = copy(lshaped.x)
+        lshaped.Q̃ = lshaped.obj
+        push!(lshaped.Q̃_hist,lshaped.Q̃)
+        lshaped.nApproximateSteps += 1
+    else
+        println("Null step")
+        lshaped.nNullSteps += 1
+        lshaped.σ *= 0.9
+        updateObjective!(lshaped)
+    end
+end
+
+@implement_traitfn IsRegularized function removeInactive!(lshaped::AbstractLShapedSolver)
+    inactive = find(c->!active(lshaped,c),lshaped.committee)
+    diff = length(lshaped.committee) - length(lshaped.structuredModel.linconstr) - lshaped.nscenarios
+    if isempty(inactive) || diff <= 0
+        return false
+    end
+    if diff <= length(inactive)
+        inactive = inactive[1:diff]
+    end
+    append!(lshaped.inactive,lshaped.committee[inactive])
+    deleteat!(lshaped.committee,inactive)
+    delconstrs!(lshaped.masterSolver.model,inactive)
+    return true
 end

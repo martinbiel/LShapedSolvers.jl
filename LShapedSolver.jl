@@ -122,7 +122,7 @@ mutable struct AsynchronousLShapedSolver <: AbstractLShapedSolver
 end
 AsynchronousLShapedSolver(m::JuMPModel) = AsynchronousLShapedSolver(m,rand(m.numCols))
 
-@traitimpl IsParallel{AsynchronousLShapedSolver}
+@implement_trait AsynchronousLShapedSolver IsParallel
 
 function Base.show(io::IO, lshaped::AsynchronousLShapedSolver)
     print(io,"AsynchronousLShapedSolver")

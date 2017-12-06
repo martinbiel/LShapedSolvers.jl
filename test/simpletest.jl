@@ -1,5 +1,8 @@
 using StructJuMP
 using Clp
+using Base.Test
+push!(LOAD_PATH,"/home/mbiel/projects/LShaped/")
+using LShaped
 
 function simplemodel()
     p = [0.4,0.6]
