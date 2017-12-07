@@ -7,8 +7,8 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
     x::AbstractVector
     obj::Real
 
-    committee::Vector{AbstractHyperplane}
-    inactive::Vector{AbstractHyperplane}
+    committee::Vector{HyperPlane}
+    inactive::Vector{HyperPlane}
     violating::PriorityQueue
 
     # Subproblems
@@ -28,7 +28,7 @@ mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs::AbstractVector
-    cuts::Vector{AbstractHyperplane}
+    cuts::Vector{HyperPlane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
 
@@ -210,7 +210,7 @@ end
     lshaped.nNullSteps = 0
 
     lshaped.committee = linearconstraints(lshaped.structuredModel)
-    lshaped.inactive = Vector{AbstractHyperplane}()
+    lshaped.inactive = Vector{HyperPlane}()
     lshaped.violating = PriorityQueue(Reverse)
 end
 

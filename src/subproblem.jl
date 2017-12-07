@@ -58,7 +58,7 @@ function (subprob::SubProblem)()
     elseif solvestatus == :Infeasible
         return FeasibilityCut(subprob)
     elseif lshaped.status == :Unbounded
-        return ImproperCut(subprob)
+        return Unbounded(subprob)
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
     end

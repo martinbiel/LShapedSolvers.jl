@@ -14,7 +14,7 @@ mutable struct LShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs::AbstractVector
-    cuts::Vector{AbstractHyperplane}
+    cuts::Vector{HyperPlane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
 
@@ -95,7 +95,7 @@ mutable struct AsynchronousLShapedSolver <: AbstractLShapedSolver
 
     # Cuts
     θs::AbstractVector
-    cuts::Vector{AbstractHyperplane}
+    cuts::Vector{HyperPlane}
     nOptimalityCuts::Integer
     nFeasibilityCuts::Integer
 
@@ -147,7 +147,7 @@ function (lshaped::AsynchronousLShapedSolver)()
         while isready(lshaped.cutQueue)
             # Add new cuts from subworkers
             cut = take!(lshaped.cutQueue)
-            if !proper(cut)
+            if !bounded(cut)
                 println("Subproblem ",cut.id," is unbounded, aborting procedure.")
                 println("======================")
                 return

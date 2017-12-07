@@ -28,7 +28,7 @@ function init(lshaped::AbstractLShapedSolver)
 
     lshaped.subObjectives = zeros(lshaped.nscenarios)
 
-    lshaped.cuts = Vector{AbstractHyperplane}()
+    lshaped.cuts = Vector{HyperPlane}()
     lshaped.nOptimalityCuts = 0
     lshaped.nFeasibilityCuts = 0
 
@@ -116,7 +116,7 @@ function resolveSubproblems!(lshaped::AbstractLShapedSolver)
     for subprob in lshaped.subProblems
         println("Solving subproblem: ",subprob.id)
         cut = subprob()
-        if !proper(cut)
+        if !bounded(cut)
             println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
             println("======================")
             return
@@ -228,7 +228,7 @@ end
 @implement_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver)
     # Workers
     lshaped.subworkers = Vector{RemoteChannel}(nworkers())
-    lshaped.cutQueue = RemoteChannel(() -> Channel{AbstractHyperplane}(4*nworkers()*lshaped.nscenarios))
+    lshaped.cutQueue = RemoteChannel(() -> Channel{Hyperplane}(4*nworkers()*lshaped.nscenarios))
     lshaped.masterColumns = Vector{RemoteChannel}(nworkers())
     (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
     # One extra to guarantee coverage
