@@ -1,40 +1,19 @@
-struct LQSolver{float_t <: Real,array_t <: AbstractVector,model_t <: AbstractLinearQuadraticModel, solver_t <: AbstractMathProgSolver,}
-    x::array_t          # Primal variables
-    λ::array_t          # Constraint duals
-    v::array_t          # Variable duals (lower bound)
-    w::array_t          # Variable duals (upper bound)
-
+struct LQSolver{model_t <: AbstractLinearQuadraticModel, solver_t <: AbstractMathProgSolver}
     lqmodel::model_t
     optimsolver::solver_t
 
-    function (::Type{LQSolver})(model::JuMPModel,optimsolver::AbstractMathProgSolver,x₀::AbstractVector)
-        if length(x₀) != model.numCols
-            throw(ArgumentError(string("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)))
-        end
-
-        float_t = promote_type(eltype(x₀),Float32)
-        x₀_ = convert(AbstractVector{float_t},x₀)
-        array_t = typeof(x₀_)
-
+    function (::Type{LQSolver})(model::JuMPModel,optimsolver::AbstractMathProgSolver)
         lqmodel = LinearQuadraticModel(optimsolver)
-        solver = new{float_t,array_t,typeof(lqmodel),typeof(optimsolver)}(
-            x₀_,
-            convert(array_t,zeros(length(model.linconstr))),
-            convert(array_t,zeros(model.numCols)),
-            convert(array_t,zeros(model.numCols)),
-            lqmodel,
-            optimsolver,
-        )
+        solver = new{typeof(lqmodel),typeof(optimsolver)}(lqmodel,optimsolver)
         loadproblem!(solver.lqmodel,loadLP(model)...)
 
         return solver
     end
 end
-LQSolver(model::JuMPModel,optimsolver::AbstractMathProgSolver) = LQSolver(model,optimsolver,rand(model.numCols))
 
-function (solver::LQSolver)()
-    if applicable(setwarmstart!,solver.lqmodel,solver.x)
-        setwarmstart!(solver.lqmodel,solver.x)
+function (solver::LQSolver)(x₀::AbstractVector)
+    if applicable(setwarmstart!,solver.lqmodel,x₀)
+        setwarmstart!(solver.lqmodel,x₀)
     end
     optimize!(solver.lqmodel)
 

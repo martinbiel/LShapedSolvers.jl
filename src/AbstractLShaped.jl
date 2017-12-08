@@ -28,8 +28,9 @@ end
 # ======================================================================== #
 function update_solution!(lshaped::AbstractLShapedSolver)
     ncols = lshaped.structuredmodel.numCols
-    lshaped.x[1:ncols] = lshaped.mastersolver.x[1:ncols]
-    lshaped.θs[:] = lshaped.mastersolver.x[end-lshaped.nscenarios+1:end]
+    x = getsolution(lshaped.mastersolver)
+    lshaped.x[1:ncols] = x[1:ncols]
+    lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
 end
 
 function update_structuredmodel!(lshaped::AbstractLShapedSolver)
@@ -41,8 +42,8 @@ function update_structuredmodel!(lshaped::AbstractLShapedSolver)
 
     for i in 1:lshaped.nscenarios
         m = getchildren(lshaped.structuredmodel)[i]
-        m.colVal = copy(lshaped.subproblems[i].solver.x)
-        m.objVal = copy(lshaped.subproblems[i].solver.obj)
+        m.colVal = copy(getsolution(lshaped.subproblems[i].solver))
+        m.objVal = getobjval(lshaped.subproblems[i].solver)
         m.objVal *= m.objSense == :Min ? 1 : -1
     end
 end
@@ -90,7 +91,6 @@ function prepare_master!(lshaped::AbstractLShapedSolver)
     for i = 1:lshaped.nscenarios
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
     end
-    append!(lshaped.mastersolver.x,zeros(lshaped.nscenarios))
 end
 
 function resolve_subproblems!(lshaped::AbstractLShapedSolver)

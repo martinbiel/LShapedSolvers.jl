@@ -6,15 +6,16 @@ struct SubProblem{float_t <: Real, array_t <: AbstractVector, solver_t <: LQSolv
 
     h::Tuple{array_t,array_t}
     x::array_t
+    y::array_t
     masterterms::Vector{Tuple{Int,Int,float_t}}
 
-    function (::Type{SubProblem})(model::JuMPModel,parent::JuMPModel,id::Integer,π::Real,x::AbstractVector,x₀::AbstractVector,optimsolver::AbstractMathProgSolver)
-        float_t = promote_type(eltype(x),eltype(x₀),Float32)
+    function (::Type{SubProblem})(model::JuMPModel,parent::JuMPModel,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
+        float_t = promote_type(eltype(x),eltype(y₀),Float32)
         x_ = convert(AbstractVector{float_t},x)
-        x₀_ = convert(AbstractVector{float_t},x₀)
+        y₀_ = convert(AbstractVector{float_t},y₀)
         array_t = typeof(x)
 
-        solver = LQSolver(model,optimsolver,copy(x₀_))
+        solver = LQSolver(model,optimsolver)
 
         subproblem = new{float_t,array_t,typeof(solver)}(id,
                                                          π,
@@ -22,6 +23,7 @@ struct SubProblem{float_t <: Real, array_t <: AbstractVector, solver_t <: LQSolv
                                                          (convert(array_t,getconstrLB(solver.lqmodel)),
                                                           convert(array_t,getconstrUB(solver.lqmodel))),
                                                          x_,
+                                                         y₀_,
                                                          Vector{Tuple{Int,Int,float_t}}()
                                                          )
         parseSubProblem!(subproblem,model,parent)
@@ -59,9 +61,10 @@ end
 update_subproblems!(subproblems::Vector{<:SubProblem},x::AbstractVector) = map(prob -> update_subproblem!(prob,x),subproblems)
 
 function (subproblem::SubProblem)()
-    subproblem.solver()
+    subproblem.solver(subproblem.y)
     solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
+        subproblem.y[:] = getsolution(subproblem.solver)
         return OptimalityCut(subproblem)
     elseif solvestatus == :Infeasible
         return FeasibilityCut(subproblem)
@@ -74,9 +77,10 @@ end
 
 function (subproblem::SubProblem)(x::AbstractVector)
     updateSubProblem!(subproblem,x)
-    subproblem.solver()
+    subproblem.solver(subproblem.y)
     solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
+        y[:] = getsolution(subproblem.solver)
         return getobjval(subproblem.solver)
     elseif solvestatus == :Infeasible
         error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))

@@ -26,10 +26,9 @@ struct LShapedSolver{float_t <: Real, array_t <: AbstractVector, msolver_t <: LQ
         x₀_ = convert(AbstractVector{float_t},x₀)
         array_t = typeof(x₀_)
 
-        msolver = LQSolver(model,mastersolver,copy(x₀_))
+        msolver = LQSolver(model,mastersolver)
         msolver_t = typeof(msolver)
-        ssolver_t = LQSolver{float_t,array_t,typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        println(ssolver_t)
+        ssolver_t = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
 
         lshaped = new{float_t,
                       array_t,
@@ -77,7 +76,7 @@ function (lshaped::LShapedSolver{float_t,array_t,msolver_t,ssolver_t})() where {
 
         # Resolve master
         println("Solving master problem")
-        lshaped.mastersolver()
+        lshaped.mastersolver(lshaped.x)
         if status(lshaped.mastersolver) == :Infeasible
             println("Master is infeasible, aborting procedure.")
             println("======================")
