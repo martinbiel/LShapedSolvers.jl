@@ -21,6 +21,8 @@ FeasibilityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,Feasib
 LinearConstraint(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,LinearConstraint)
 Unbounded(id::Int) = HyperPlane{[],Inf,id,Unbounded}
 
+SparseHyperPlane{htype <: HyperPlaneType, float_t <: Real} = HyperPlane{htype,float_t,SparseVector{float_t,Int64}}
+
 function (hyperplane::HyperPlane{htype})(x::AbstractVector) where htype <: HyperPlaneType
     if length(hyperplane.δQ) != length(x)
         throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(hyperplane.δQ),length(x))))
@@ -87,33 +89,33 @@ end
 
 # Constructors #
 # ======================================================================== #
-function OptimalityCut(subprob::SubProblem)
-    @assert status(subprob.solver) == :Optimal
-    λ = subprob.solver.λ
-    π = subprob.π
-    cols = zeros(length(subprob.masterTerms))
-    vals = zeros(length(subprob.masterTerms))
-    for (s,(i,j,coeff)) in enumerate(subprob.masterTerms)
+function OptimalityCut(subproblem::SubProblem)
+    @assert status(subproblem.solver) == :Optimal
+    λ = getduals(subproblem.solver)
+    π = subproblem.π
+    cols = zeros(length(subproblem.masterterms))
+    vals = zeros(length(subproblem.masterterms))
+    for (s,(i,j,coeff)) in enumerate(subproblem.masterterms)
         cols[s] = j
         vals[s] = -π*λ[i]*coeff
     end
-    δQ = sparsevec(cols,vals,length(subprob.x))
-    q = π*subprob.solver.obj+δQ⋅subprob.x
+    δQ = sparsevec(cols,vals,length(subproblem.x))
+    q = π*getobjval(subproblem.solver)+δQ⋅subproblem.x
 
-    return OptimalityCut(δQ, q, subprob.id)
+    return OptimalityCut(δQ, q, subproblem.id)
 end
 
-function FeasibilityCut(subprob::SubProblem)
-    @assert status(subprob.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"
-    λ = subprob.solver.λ
-    cols = zeros(length(subprob.masterTerms))
-    vals = zeros(length(subprob.masterTerms))
-    for (s,(i,j,coeff)) in enumerate(subprob.masterTerms)
+function FeasibilityCut(subproblem::SubProblem)
+    @assert status(subproblem.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"
+    λ = getduals(subproblem.solver)
+    cols = zeros(length(subproblem.masterTerms))
+    vals = zeros(length(subproblem.masterTerms))
+    for (s,(i,j,coeff)) in enumerate(subproblem.masterterms)
         cols[s] = j
         vals[s] = -λ[i]*coeff
     end
-    G = sparsevec(cols,vals,subprob.nMasterCols)
-    g = subprob.solver.obj-G⋅subprob.x
+    G = sparsevec(cols,vals,length(subproblem.x))
+    g = subproblem.solver.obj+G⋅subproblem.x
 
     return FeasibilityCut(G, g, subprob.id)
 end
@@ -144,14 +146,12 @@ Unbounded(subprob::SubProblem) = Unbounded(subprob.id)
 
 #  #
 # ======================================================================== #
-function addCut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector)
-    cutIdx = numvar(lshaped.masterSolver.model)
-
+function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector)
     Q = cut(x)
     θ = lshaped.θs[cut.id]
     τ = lshaped.τ
 
-    lshaped.subObjectives[cut.id] = Q
+    lshaped.subobjectives[cut.id] = Q
 
     println("θ",cut.id,": ", θ)
     println("Q",cut.id,": ", Q)
@@ -162,25 +162,22 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x
         return false
     end
 
-    lshaped.nOptimalityCuts += 1
     println("Added Optimality Cut")
     if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     elseif hastrait(lshaped,HasTrustRegion)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     else
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     end
     push!(lshaped.cuts,cut)
     return true
 end
-addCut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addCut!(lshaped,cut,lshaped.x)
+addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
 
-function addCut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
-    cutIdx = lshaped.masterSolver.lp.numCols
-
+function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     D = cut.δQ
     d = cut.q
 
@@ -192,16 +189,15 @@ function addCut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
 
     D = D/scaling
 
-    lshaped.nFeasibilityCuts += 1
     println("Added Feasibility Cut")
     if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     elseif hastrait(lshaped,HasTrustRegion)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     else
-        addconstr!(lshaped.masterSolver.model,lowlevel(cut)...)
+        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     end
     push!(lshaped.cuts,cut)
     return true

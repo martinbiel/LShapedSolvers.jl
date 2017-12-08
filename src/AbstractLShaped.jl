@@ -1,4 +1,4 @@
-abstract type AbstractLShapedSolver end
+abstract type AbstractLShapedSolver{float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver} end
 
 nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
@@ -12,62 +12,49 @@ end
 
 # Initialization #
 # ======================================================================== #
-function init(lshaped::AbstractLShapedSolver)
-    m = lshaped.structuredModel
-    @assert haskey(m.ext,:Stochastic) "The provided model is not structured"
-    n = num_scenarios(m)
-    lshaped.nscenarios = n
-
+function init!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t},subsolver::AbstractMathProgSolver) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
+    append!(lshaped.subobjectives,zeros(lshaped.nscenarios))
+    append!(lshaped.θs,fill(-Inf,lshaped.nscenarios))
     # Prepare the master optimization problem
-    prepareMaster!(lshaped)
-    lshaped.θs = fill(-Inf,lshaped.nscenarios)
-    lshaped.obj = Inf
-
+    prepare_master!(lshaped)
+    # Finish initialization based on solver traits
     initSolverData!(lshaped)
-    initSolver!(lshaped)
-
-    lshaped.subObjectives = zeros(lshaped.nscenarios)
-
-    lshaped.cuts = Vector{HyperPlane}()
-    lshaped.nOptimalityCuts = 0
-    lshaped.nFeasibilityCuts = 0
-
-    # Set the tolerance
-    lshaped.τ = 1e-6
+    initSolver!(lshaped,subsolver)
 end
 
 # ======================================================================== #
 
 # Functions #
 # ======================================================================== #
-function updateSolution!(lshaped::AbstractLShapedSolver)
-    lshaped.x[1:lshaped.structuredModel.numCols] = lshaped.masterSolver.x[1:lshaped.structuredModel.numCols]
-    lshaped.θs = lshaped.masterSolver.x[end-lshaped.nscenarios+1:end]
+function update_solution!(lshaped::AbstractLShapedSolver)
+    ncols = lshaped.structuredmodel.numCols
+    lshaped.x[1:ncols] = lshaped.mastersolver.x[1:ncols]
+    lshaped.θs[:] = lshaped.mastersolver.x[end-lshaped.nscenarios+1:end]
 end
 
-function updateObjectiveValue!(lshaped::AbstractLShapedSolver)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-
-    lshaped.obj = c⋅lshaped.x + sum(lshaped.subObjectives)
-end
-
-function updateStructuredModel!(lshaped::AbstractLShapedSolver)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
-    lshaped.structuredModel.colVal = copy(lshaped.x)
-    lshaped.structuredModel.objVal = c⋅lshaped.x + sum(lshaped.subObjectives)
-    lshaped.structuredModel.objVal *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+function update_structuredmodel!(lshaped::AbstractLShapedSolver)
+    c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
+    lshaped.structuredmodel.colVal = copy(lshaped.x)
+    lshaped.structuredmodel.objVal = c⋅lshaped.x + sum(lshaped.subobjectives)
+    lshaped.structuredmodel.objVal *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
 
     for i in 1:lshaped.nscenarios
-        m = getchildren(lshaped.structuredModel)[i]
-        m.colVal = copy(lshaped.subProblems[i].solver.x)
-        m.objVal = copy(lshaped.subProblems[i].solver.obj)
+        m = getchildren(lshaped.structuredmodel)[i]
+        m.colVal = copy(lshaped.subproblems[i].solver.x)
+        m.objVal = copy(lshaped.subproblems[i].solver.obj)
         m.objVal *= m.objSense == :Min ? 1 : -1
     end
 end
 
-function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
+function calculate_objective_value(lshaped::AbstractLShapedSolver)
+    c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
+
+    return c⋅lshaped.x + sum(lshaped.subobjectives)
+end
+
+function extract_master!(lshaped::AbstractLShapedSolver,src::JuMPModel)
     @assert haskey(src.ext,:Stochastic) "The provided model is not structured"
 
     # Minimal copy of master part of structured problem
@@ -98,30 +85,28 @@ function extractMaster!(lshaped::AbstractLShapedSolver,src::JuMPModel)
     lshaped.masterModel = master
 end
 
-function prepareMaster!(lshaped::AbstractLShapedSolver)
-    lshaped.masterSolver = LQSolver(lshaped.structuredModel)
-
+function prepare_master!(lshaped::AbstractLShapedSolver)
     # θs
     for i = 1:lshaped.nscenarios
-        addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
+        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
     end
-    append!(lshaped.masterSolver.x,zeros(lshaped.nscenarios))
+    append!(lshaped.mastersolver.x,zeros(lshaped.nscenarios))
 end
 
-function resolveSubproblems!(lshaped::AbstractLShapedSolver)
+function resolve_subproblems!(lshaped::AbstractLShapedSolver)
     # Update subproblems
-    updateSubProblems!(lshaped.subProblems,lshaped.x)
+    update_subproblems!(lshaped.subproblems,lshaped.x)
 
     # Solve sub problems
-    for subprob in lshaped.subProblems
-        println("Solving subproblem: ",subprob.id)
-        cut = subprob()
+    for subproblem ∈ lshaped.subproblems
+        println("Solving subproblem: ",subproblem.id)
+        cut = subproblem()
         if !bounded(cut)
-            println("Subproblem ",subprob.id," is unbounded, aborting procedure.")
+            println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
             println("======================")
             return
         end
-        addCut!(lshaped,cut)
+        addcut!(lshaped,cut)
     end
 end
 # ======================================================================== #
@@ -172,17 +157,17 @@ end
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
 end
 
-@define_traitfn UsesLocalization function initSolverData!(lshaped::AbstractLShapedSolver)
-    lshaped.obj_hist = Float64[]
+@define_traitfn UsesLocalization function initSolverData!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t}) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
+    nothing
 end
 
-@define_traitfn UsesLocalization function checkOptimality(lshaped::AbstractLShapedSolver)
-    Q = sum(lshaped.subObjectives)
+@define_traitfn UsesLocalization function check_optimality(lshaped::AbstractLShapedSolver)
+    Q = sum(lshaped.subobjectives)
     θ = sum(lshaped.θs)
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
-end function checkOptimality(lshaped::AbstractLShapedSolver,UsesLocalization)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
+end function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
+    c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
     θ = c⋅lshaped.x + sum(lshaped.θs)
 
     if abs(θ - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
@@ -214,13 +199,13 @@ end
 # ------------------------------------------------------------
 @define_trait IsParallel
 
-@define_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver)
+@define_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t},subsolver::AbstractMathProgSolver) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
     # Prepare the subproblems
-    m = lshaped.structuredModel
-    lshaped.subProblems = Vector{SubProblem}(lshaped.nscenarios)
+    m = lshaped.structuredmodel
     π = getprobability(m)
     for i = 1:lshaped.nscenarios
-        lshaped.subProblems[i] = SubProblem(getchildren(m)[i],m,i,π[i])
+        x₀ = convert(array_t,rand(getchildren(m)[i].numCols))
+        push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),x₀,subsolver))
     end
     lshaped
 end

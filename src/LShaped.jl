@@ -32,12 +32,11 @@ JuMPVariable = JuMP.Variable
 # Include files
 include("LPProblem.jl")
 include("LPSolver.jl")
-#include("Simplex.jl")
 include("subproblem.jl")
 include("AbstractLShaped.jl")
 include("hyperplane.jl")
 include("solvers/LShapedSolver.jl")
-include("solvers/RegularizedLShapedSolver.jl")
-include("solvers/TrustRegionLShapedSolver.jl")
+#include("solvers/RegularizedLShapedSolver.jl")
+#include("solvers/TrustRegionLShapedSolver.jl")
 
 end # module

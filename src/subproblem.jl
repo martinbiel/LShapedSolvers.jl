@@ -1,80 +1,88 @@
-mutable struct SubProblem
-    id::Integer
-    π::Real
+struct SubProblem{float_t <: Real, array_t <: AbstractVector, solver_t <: LQSolver}
+    id::Int
+    π::float_t
 
-    solver::AbstractLQSolver
+    solver::solver_t
 
-    h::Tuple{AbstractVector,AbstractVector}
-    x::AbstractVector
-    masterTerms::AbstractVector
+    h::Tuple{array_t,array_t}
+    x::array_t
+    masterterms::Vector{Tuple{Int,Int,float_t}}
 
-    function SubProblem(m::JuMPModel,parent::JuMPModel,id::Integer,π::Float64)
-        subprob = new(id,π)
+    function (::Type{SubProblem})(model::JuMPModel,parent::JuMPModel,id::Integer,π::Real,x::AbstractVector,x₀::AbstractVector,optimsolver::AbstractMathProgSolver)
+        float_t = promote_type(eltype(x),eltype(x₀),Float32)
+        x_ = convert(AbstractVector{float_t},x)
+        x₀_ = convert(AbstractVector{float_t},x₀)
+        array_t = typeof(x)
 
-        subprob.solver = LQSolver(m)
+        solver = LQSolver(model,optimsolver,copy(x₀_))
 
-        subprob.h = (getconstrLB(subprob.solver.model),getconstrUB(subprob.solver.model))
-        subprob.x = zeros(parent.numCols)
-        subprob.masterTerms = []
-        parseSubProblem!(subprob,m,parent)
+        subproblem = new{float_t,array_t,typeof(solver)}(id,
+                                                         π,
+                                                         solver,
+                                                         (convert(array_t,getconstrLB(solver.lqmodel)),
+                                                          convert(array_t,getconstrUB(solver.lqmodel))),
+                                                         x_,
+                                                         Vector{Tuple{Int,Int,float_t}}()
+                                                         )
+        parseSubProblem!(subproblem,model,parent)
 
-        return subprob
+        return subproblem
     end
 end
 
-function parseSubProblem!(subprob::SubProblem,model::JuMPModel,parent::JuMPModel)
+function parseSubProblem!(subproblem::SubProblem,model::JuMPModel,parent::JuMPModel)
     for (i,constr) in enumerate(model.linconstr)
         for (j,var) in enumerate(constr.terms.vars)
             if var.m == parent
                 # var is a first stage variable
-                push!(subprob.masterTerms,(i,var.col,-constr.terms.coeffs[j]))
+                push!(subproblem.masterterms,(i,var.col,-constr.terms.coeffs[j]))
             end
         end
     end
 end
 
-function updateSubProblem!(subprob::SubProblem,x::AbstractVector)
-    lb = getconstrLB(subprob.solver.model)
-    ub = getconstrUB(subprob.solver.model)
-    for i in [term[1] for term in unique(term -> term[1],subprob.masterTerms)]
-        lb[i] = subprob.h[1][i]
-        ub[i] = subprob.h[2][i]
+function update_subproblem!(subproblem::SubProblem,x::AbstractVector)
+    lb = getconstrLB(subproblem.solver.lqmodel)
+    ub = getconstrUB(subproblem.solver.lqmodel)
+    for i in [term[1] for term in unique(term -> term[1],subproblem.masterterms)]
+        lb[i] = subproblem.h[1][i]
+        ub[i] = subproblem.h[2][i]
     end
-    for (i,j,coeff) in subprob.masterTerms
+    for (i,j,coeff) in subproblem.masterterms
         lb[i] += coeff*x[j]
         ub[i] += coeff*x[j]
     end
-    setconstrLB!(subprob.solver.model, lb)
-    setconstrUB!(subprob.solver.model, ub)
-    subprob.x = x
+    setconstrLB!(subproblem.solver.lqmodel, lb)
+    setconstrUB!(subproblem.solver.lqmodel, ub)
+    subproblem.x[:] = x
 end
-updateSubProblems!(subprobs::Vector{SubProblem},x::AbstractVector) = map(prob -> updateSubProblem!(prob,x),subprobs)
+update_subproblems!(subproblems::Vector{<:SubProblem},x::AbstractVector) = map(prob -> update_subproblem!(prob,x),subproblems)
 
-function (subprob::SubProblem)()
-    subprob.solver()
-    solvestatus = status(subprob.solver)
+function (subproblem::SubProblem)()
+    subproblem.solver()
+    solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
-        return OptimalityCut(subprob)
+        return OptimalityCut(subproblem)
     elseif solvestatus == :Infeasible
-        return FeasibilityCut(subprob)
+        return FeasibilityCut(subproblem)
     elseif lshaped.status == :Unbounded
-        return Unbounded(subprob)
+        return Unbounded(subproblem)
     else
-        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
+        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
     end
 end
 
-function (subprob::SubProblem)(x::AbstractVector)
-    updateSubProblem!(subprob,x)
-    subprob.solver()
-    solvestatus = status(subprob.solver)
+function (subproblem::SubProblem)(x::AbstractVector)
+    updateSubProblem!(subproblem,x)
+    subproblem.solver()
+    solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
-        return subprob.solver.obj
+        return getobjval(subproblem.solver)
     elseif solvestatus == :Infeasible
-        error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subprob.id))
+        error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))
     elseif lshaped.status == :Unbounded
-        error(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subprob.id))
+        error(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subproblem.id))
     else
-        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subprob.id,string(solvestatus)))
+        error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
     end
 end
