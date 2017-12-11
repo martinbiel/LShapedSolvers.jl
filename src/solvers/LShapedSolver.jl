@@ -66,7 +66,7 @@ function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVect
             # Optimal
             update_structuredmodel!(lshaped)
             println("Optimal!")
-            println("Objective value: ", sum(lshaped.subobjectives))
+            println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
             break
         end

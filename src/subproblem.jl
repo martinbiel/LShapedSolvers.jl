@@ -76,11 +76,11 @@ function (subproblem::SubProblem)()
 end
 
 function (subproblem::SubProblem)(x::AbstractVector)
-    updateSubProblem!(subproblem,x)
+    update_subproblem!(subproblem,x)
     subproblem.solver(subproblem.y)
     solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
-        y[:] = getsolution(subproblem.solver)
+        subproblem.y[:] = getsolution(subproblem.solver)
         return getobjval(subproblem.solver)
     elseif solvestatus == :Infeasible
         error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))

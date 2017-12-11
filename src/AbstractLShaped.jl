@@ -29,10 +29,12 @@ function update_solution!(lshaped::AbstractLShapedSolver)
     x = getsolution(lshaped.mastersolver)
     lshaped.x[1:ncols] = x[1:ncols]
     lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
+    nothing
 end
 
 function update_structuredmodel!(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
     lshaped.structuredmodel.colVal = copy(lshaped.x)
     lshaped.structuredmodel.objVal = c⋅lshaped.x + sum(lshaped.subobjectives)
 
@@ -41,10 +43,19 @@ function update_structuredmodel!(lshaped::AbstractLShapedSolver)
         m.colVal = copy(getsolution(lshaped.subproblems[i].solver))
         m.objVal = getobjval(lshaped.subproblems[i].solver)
     end
+    nothing
+end
+
+function calculate_estimate(lshaped::AbstractLShapedSolver)
+    c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
+
+    return c⋅lshaped.x + sum(lshaped.θs)
 end
 
 function calculate_objective_value(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
 
     return c⋅lshaped.x + sum(lshaped.subobjectives)
 end
@@ -172,15 +183,17 @@ end
     θ = sum(lshaped.θs)
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
-    c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    θ = c⋅lshaped.x + sum(lshaped.θs)
-
-    if abs(θ - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
+    θ = calculate_estimate(lshaped)
+    Q = lshaped.solverdata.Q̃
+    if θ > -Inf && Q < Inf && abs(θ - lshaped.solverdata.Q̃) <= lshaped.τ*(1+abs(lshaped.solverdata.Q̃))
         return true
     else
         return false
     end
 end
+
+@define_traitfn UsesLocalization take_step!(lshaped::AbstractLShapedSolver)
+@define_traitfn UsesLocalization remove_inactive!(lshaped::AbstractLShapedSolver)
 
 @define_traitfn UsesLocalization queueViolated!(lshaped::AbstractLShapedSolver) function queueViolated!(lshaped::AbstractLShapedSolver,UsesLocalization)
     violating = find(c->violated(lshaped,c),lshaped.inactive)
@@ -188,12 +201,8 @@ end
         return false
     end
     gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
-    if isempty(lshaped.violating)
-        lshaped.violating = PriorityQueue(Reverse,zip(lshaped.inactive[violating],gaps))
-    else
-        for (c,g) in zip(lshaped.inactive[violating],gaps)
-            enqueue!(lshaped.violating,c,g)
-        end
+    for (c,g) in zip(lshaped.inactive[violating],gaps)
+        enqueue!(lshaped.violating,c,g)
     end
     deleteat!(lshaped.inactive,violating)
     return true
@@ -247,13 +256,13 @@ end
 end
 
 @define_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)
-    c = JuMP.prepAffObjective(lshaped.structuredModel)
-    return c⋅x + sum([subprob.π*subprob(x) for subprob in lshaped.subProblems])
+    c = JuMP.prepAffObjective(lshaped.structuredmodel)
+    return c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
 end
 
 @implement_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)
-    c = lshaped.structuredModel.obj.aff.coeffs
-    objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
+    c = lshaped.structuredmodel.obj.aff.coeffs
+    objidx = [v.col for v in lshaped.structuredmodel.obj.aff.vars]
     return c⋅x[objidx] + sum(fetch.([@spawnat w calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
 end
 

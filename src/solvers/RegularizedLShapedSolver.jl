@@ -1,58 +1,83 @@
-mutable struct RegularizedLShapedSolver <: AbstractLShapedSolver
-    structuredModel::JuMPModel
+@with_kw mutable struct RegularizedSolverData{T <: Real}
+    Q̃::T = Inf
+    Δ̅::T = 1.0
+    σ::T = 1.0
+    exact_steps::Int = 0
+    approximate_steps::Int = 0
+    null_steps::Int = 0
+end
+
+struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+    structuredmodel::JuMPModel
+    solverdata::RegularizedSolverData{T}
 
     # Master
-    masterSolver::AbstractLQSolver
-    c::AbstractVector
-    x::AbstractVector
-    obj::Real
+    mastersolver::M
+    c::A
+    x::A
 
-    committee::Vector{HyperPlane}
-    inactive::Vector{HyperPlane}
-    violating::PriorityQueue
+    committee::Vector{SparseHyperPlane{T}}
+    inactive::Vector{SparseHyperPlane{T}}
+    violating::PriorityQueue{SparseHyperPlane{T},T}
 
     # Subproblems
-    nscenarios::Integer
-    subProblems::Vector{SubProblem}
-    subObjectives::AbstractVector
+    nscenarios::Int
+    subproblems::Vector{SubProblem{T,A,S}}
+    subobjectives::A
 
     # Regularizer
-    ξ::AbstractVector
-    Q̃::Real
-    Q̃_hist::AbstractVector
-    Δ̅::Real
-    Δ̅_hist::AbstractVector
-    nExactSteps::Integer
-    nApproximateSteps::Integer
-    nNullSteps::Integer
+    ξ::A
+    Q̃_history::A
+    Δ̅_history::A
 
     # Cuts
-    θs::AbstractVector
-    cuts::Vector{HyperPlane}
-    nOptimalityCuts::Integer
-    nFeasibilityCuts::Integer
+    θs::A
+    cuts::Vector{SparseHyperPlane{T}}
 
     # Params
-    status::Symbol
-    σ::Real
-    γ::Real
-    τ::Real
+    σ::T
+    γ::T
+    τ::T
 
-    function RegularizedLShapedSolver(m::JuMPModel,ξ::AbstractVector)
-        lshaped = new(m)
+    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+        length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
+        !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
-        if length(ξ) != m.numCols
-            throw(ArgumentError(string("Incorrect length of regularizer, has ",length(ξ)," should be ",m.numCols)))
-        end
+        T = promote_type(eltype(x₀),Float32)
+        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
+        x₀_ = convert(AbstractVector{T},x₀)
+        A = typeof(x₀_)
 
-        lshaped.x = ξ
-        lshaped.ξ = ξ
+        msolver = LQSolver(model,mastersolver)
+        M = typeof(msolver)
+        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
 
-        init(lshaped)
+        lshaped = new{T,A,M,S}(model,
+                               RegularizedSolverData{T}(),
+                               msolver,
+                               c_,
+                               convert(A,rand(length(x₀_))),
+                               convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
+                               Vector{SparseHyperPlane{T}}(),
+                               PriorityQueue{SparseHyperPlane{T},T}(Reverse),
+                               num_scenarios(model),
+                               Vector{SubProblem{T,A,S}}(),
+                               A(zeros(num_scenarios(model))),
+                               x₀_,
+                               A(),
+                               A(),
+                               A(fill(-Inf,num_scenarios(model))),
+                               Vector{SparseHyperPlane{T}}(),
+                               convert(T,1.0),
+                               convert(T,0.9),
+                               convert(T,1e-6)
+                               )
+        init!(lshaped,subsolver)
 
         return lshaped
     end
 end
+RegularizedLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = RegularizedLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
 
 @implement_trait RegularizedLShapedSolver UsesLocalization IsRegularized
 
@@ -61,31 +86,26 @@ function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
 end
 
 function prepareMaster!(lshaped::RegularizedLShapedSolver,n::Integer)
-    lshaped.masterSolver = LQSolver(lshaped.structuredModel)
     # θs
     for i = 1:n
-        addvar!(lshaped.masterSolver.model,-Inf,Inf,1.0)
+        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
     end
-    lshaped.masterSolver.x = copy(lshaped.x)
-    append!(lshaped.masterSolver.x,fill(-Inf,n))
-
-    lshaped.c = JuMP.prepAffObjective(lshaped.structuredModel)
-    updateObjective!(lshaped)
+    update_objective!(lshaped)
 end
 
-function updateObjective!(lshaped::RegularizedLShapedSolver)
+function update_objective!(lshaped::RegularizedLShapedSolver)
     # Linear regularizer penalty
     c = copy(lshaped.c)
-    c -= (1/lshaped.σ)*lshaped.ξ
+    c -= (1/lshaped.solverdata.σ)*lshaped.ξ
     append!(c,fill(1.0,lshaped.nscenarios))
-    setobj!(lshaped.masterSolver.model,c)
+    setobj!(lshaped.mastersolver.lqmodel,c)
 
     # Quadratic regularizer penalty
     qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = fill(1/lshaped.σ,length(lshaped.ξ))
+    qval = fill(1/lshaped.solverdata.σ,length(lshaped.ξ))
     append!(qval,zeros(lshaped.nscenarios))
-    if applicable(setquadobj!,lshaped.masterSolver.model,qidx,qidx,qval)
-        setquadobj!(lshaped.masterSolver.model,qidx,qidx,qval)
+    if applicable(setquadobj!,lshaped.mastersolver.lqmodel,qidx,qidx,qval)
+        setquadobj!(lshaped.mastersolver.lqmodel,qidx,qidx,qval)
     else
         error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
     end
@@ -94,34 +114,16 @@ end
 function (lshaped::RegularizedLShapedSolver)()
     println("Starting L-Shaped procedure with regularized decomposition")
     println("======================")
-    # Initial solve of subproblems at starting guess
-    println("Initial solve of subproblems at starting regularizer")
-    updateSubProblems!(lshaped.subProblems,lshaped.ξ)
-    map(s->addCut!(lshaped,s(),lshaped.ξ),lshaped.subProblems)
-    lshaped.Q̃ = sum(lshaped.subObjectives)
-    push!(lshaped.Q̃_hist,lshaped.Q̃)
-    # Initial solve of master problem
-    println("Initial solve of master")
-    lshaped.masterSolver()
-    lshaped.status = status(lshaped.masterSolver)
-    if lshaped.status == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
-        return
-    end
-    updateSolution!(lshaped)
-
+    lshaped.solverdata.Q̃ = calculateObjective(lshaped,lshaped.ξ)
     println("Main loop")
     println("======================")
 
     while true
         if isempty(lshaped.violating)
             # Resolve all subproblems at the current optimal solution
-            resolveSubproblems!(lshaped)
-            # Update the objective value
-            updateObjectiveValue!(lshaped)
+            resolve_subproblems!(lshaped)
             # Update the optimization vector
-            takeRegularizedStep!(lshaped)
+            take_step!(lshaped)
         else
             # Add at most L violating constraints
             L = 0
@@ -133,58 +135,33 @@ function (lshaped::RegularizedLShapedSolver)()
                 end
                 println("Adding violated constraint to committee")
                 push!(lshaped.committee,constraint)
-                addconstr!(lshaped.masterSolver.model,lowlevel(constraint)...)
+                addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
                 L += 1
             end
         end
 
         # Resolve master
         println("Solving master problem")
-        lshaped.masterSolver()
-        lshaped.status = status(lshaped.masterSolver)
-        if lshaped.status == :Infeasible
+        lshaped.mastersolver(lshaped.x)
+        if status(lshaped.mastersolver) == :Infeasible
             println("Master is infeasible, aborting procedure.")
             println("======================")
             return
         end
-        # if lshaped.status != :Optimal
-        #     setparam!(lshaped.gurobienv,"Presolve",2)
-        #     setparam!(lshaped.gurobienv,"BarHomogeneous",1)
-        #     lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
-        #     setsolver(lshaped.masterModel,lshaped.masterSolver)
-        #     optimize!(lshaped.internal)
-        #     lshaped.status = status(lshaped.internal)
-        #     if lshaped.status == :Optimal
-        #         setparam!(lshaped.gurobienv,"Presolve",-1)
-        #         setparam!(lshaped.gurobienv,"BarHomogeneous",-1)
-        #         lshaped.masterSolver = GurobiSolver(lshaped.gurobienv)
-        #         setsolver(lshaped.masterModel,lshaped.masterSolver)
-        #     else
-        #         if lshaped.status == :Infeasible
-        #             println("Master is infeasible, aborting procedure.")
-        #         else
-        #             println("Master could not be solved, aborting procedure")
-        #         end
-        #         println("======================")
-        #         return
-        #     end
-        # end
         # Update master solution
-        updateSolution!(lshaped)
-        removeInactive!(lshaped)
+        update_solution!(lshaped)
+        remove_inactive!(lshaped)
         if length(lshaped.violating) <= lshaped.nscenarios
             queueViolated!(lshaped)
         end
 
-        if checkOptimality(lshaped)
-            if norm(lshaped.x-lshaped.ξ,Inf) - 1.1*lshaped.Δ̅ <= lshaped.τ
-                lshaped.σ *= 4
+        if check_optimality(lshaped)
+            if lshaped.solverdata.Δ̅ > lshaped.τ && norm(lshaped.x-lshaped.ξ,Inf) - lshaped.solverdata.Δ̅ <= lshaped.τ
+                lshaped.solverdata.σ *= 1/(norm(lshaped.x-lshaped.ξ,Inf))
             else
                 # Optimal
-                lshaped.status = :Optimal
-                updateStructuredModel!(lshaped)
                 println("Optimal!")
-                println("Objective value: ", lshaped.Q̃)
+                println("Objective value: ", calculate_objective_value(lshaped))
                 println("======================")
                 break
             end
@@ -195,56 +172,48 @@ end
 
 ## Trait functions
 # ------------------------------------------------------------
-@define_traitfn UsesLocalization removeInactive!(lshaped::AbstractLShapedSolver)
-@define_traitfn UsesLocalization takeRegularizedStep!(lshaped::AbstractLShapedSolver)
-
 @implement_traitfn IsRegularized function initSolverData!(lshaped::AbstractLShapedSolver)
-    lshaped.Q̃_hist = Float64[]
-    lshaped.σ = 1.0
-    lshaped.γ = 0.9
-    lshaped.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
-    lshaped.Δ̅_hist = [lshaped.Δ̅]
-
-    lshaped.nExactSteps = 0
-    lshaped.nApproximateSteps = 0
-    lshaped.nNullSteps = 0
-
-    lshaped.committee = linearconstraints(lshaped.structuredModel)
-    lshaped.inactive = Vector{HyperPlane}()
-    lshaped.violating = PriorityQueue(Reverse)
+    lshaped.solverdata.Q̃ = Inf
+    lshaped.solverdata.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+    push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
+    lshaped.solverdata.σ = lshaped.σ
+    lshaped.solverdata.exact_steps = 0
+    lshaped.solverdata.approximate_steps = 0
+    lshaped.solverdata.null_steps = 0
 end
 
-@implement_traitfn IsRegularized function takeRegularizedStep!(lshaped::AbstractLShapedSolver)
-    θ = sum(lshaped.θs)
-    if abs(θ-lshaped.obj) <= lshaped.τ*(1+abs(lshaped.obj))
+@implement_traitfn IsRegularized function take_step!(lshaped::AbstractLShapedSolver)
+    obj = calculate_objective_value(lshaped)
+    θ = calculate_estimate(lshaped)
+    if abs(θ-obj) <= lshaped.τ*(1+abs(obj))
         println("Exact serious step")
-        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
-        lshaped.ξ = copy(lshaped.x)
-        lshaped.Q̃ = lshaped.obj
-        push!(lshaped.Q̃_hist,lshaped.Q̃)
-        lshaped.nExactSteps += 1
-        lshaped.σ *= 4
-        updateObjective!(lshaped)
-    elseif lshaped.obj <= lshaped.γ*lshaped.Q̃ + (1-lshaped.γ)*θ + lshaped.τ
+        lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
+        push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
+        lshaped.ξ[:] = lshaped.x[:]
+        lshaped.solverdata.Q̃ = obj
+        push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+        lshaped.solverdata.exact_steps += 1
+        lshaped.solverdata.σ *= 4
+        update_objective!(lshaped)
+    elseif obj + lshaped.τ*(1+abs(obj)) <= lshaped.γ*lshaped.solverdata.Q̃ + (1-lshaped.γ)*θ
         println("Approximate serious step")
-        lshaped.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_hist,lshaped.Δ̅)
-        lshaped.ξ = copy(lshaped.x)
-        lshaped.Q̃ = lshaped.obj
-        push!(lshaped.Q̃_hist,lshaped.Q̃)
-        lshaped.nApproximateSteps += 1
+        lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
+        push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
+        lshaped.ξ[:] = lshaped.x[:]
+        lshaped.solverdata.Q̃ = obj
+        push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+        lshaped.solverdata.approximate_steps += 1
     else
         println("Null step")
-        lshaped.nNullSteps += 1
-        lshaped.σ *= 0.9
-        updateObjective!(lshaped)
+        lshaped.solverdata.null_steps += 1
+        lshaped.solverdata.σ *= 0.9
+        update_objective!(lshaped)
     end
 end
 
-@implement_traitfn IsRegularized function removeInactive!(lshaped::AbstractLShapedSolver)
+@implement_traitfn IsRegularized function remove_inactive!(lshaped::AbstractLShapedSolver)
     inactive = find(c->!active(lshaped,c),lshaped.committee)
-    diff = length(lshaped.committee) - length(lshaped.structuredModel.linconstr) - lshaped.nscenarios
+    diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
     if isempty(inactive) || diff <= 0
         return false
     end
@@ -253,6 +222,6 @@ end
     end
     append!(lshaped.inactive,lshaped.committee[inactive])
     deleteat!(lshaped.committee,inactive)
-    delconstrs!(lshaped.masterSolver.model,inactive)
+    delconstrs!(lshaped.mastersolver.lqmodel,inactive)
     return true
 end

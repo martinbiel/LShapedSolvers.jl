@@ -65,6 +65,7 @@ function loadLP(m::JuMPModel)
     # Build objective
     # ==============================
     c = JuMP.prepAffObjective(m)
+    c *= m.objSense == :Min ? 1 : -1
 
     # Build constraints
     # ==============================
@@ -94,7 +95,7 @@ function loadLP(m::JuMPModel)
     end
     A = sparse(I,J,V,length(m.linconstr),m.numCols)
 
-    return A,l,u,c,lb,ub,m.objSense
+    return A,l,u,c,lb,ub,:Min
 end
 
 function getVariableDuals(solver::LQSolver,d::AbstractVector)

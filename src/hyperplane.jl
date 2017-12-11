@@ -166,15 +166,10 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x
     end
 
     println("Added Optimality Cut")
-    if hastrait(lshaped,IsRegularized)
+    if hastrait(lshaped,UsesLocalization)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    elseif hastrait(lshaped,HasTrustRegion)
-        push!(lshaped.committee,cut)
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    else
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     end
+    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
 end
@@ -193,15 +188,10 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     D = D/scaling
 
     println("Added Feasibility Cut")
-    if hastrait(lshaped,IsRegularized)
+    if hastrait(lshaped,UsesLocalization)
         push!(lshaped.committee,cut)
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    elseif hastrait(lshaped,HasTrustRegion)
-        push!(lshaped.committee,cut)
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    else
-        addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     end
+    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
 end

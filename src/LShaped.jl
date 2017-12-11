@@ -1,16 +1,17 @@
 module LShaped
 
 using TraitDispatch
+using Parameters
 using JuMP
 using StructJuMP
 using Clp
 using Gurobi
 using MathProgBase
 
-import Base: show, Order.Ordering, Order.Reverse
-
 importall MathProgBase.SolverInterface
-import DataStructures: PriorityQueue,enqueue!,dequeue!
+
+using Base.Order: Ordering, ReverseOrdering, Reverse
+using DataStructures: PriorityQueue,enqueue!,dequeue!
 
 export
     LShapedSolver,
@@ -30,7 +31,7 @@ include("subproblem.jl")
 include("AbstractLShaped.jl")
 include("hyperplane.jl")
 include("solvers/LShapedSolver.jl")
-#include("solvers/RegularizedLShapedSolver.jl")
+include("solvers/RegularizedLShapedSolver.jl")
 #include("solvers/TrustRegionLShapedSolver.jl")
 
 end # module

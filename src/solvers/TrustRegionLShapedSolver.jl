@@ -230,7 +230,7 @@ end
     end
 end
 
-@implement_traitfn HasTrustRegion function removeCuts!(lshaped::AbstractLShapedSolver)
+@implement_traitfn HasTrustRegion function remove_inactive!(lshaped::AbstractLShapedSolver)
     inactive = find(c->!active(lshaped,c),lshaped.committee)
     diff = length(lshaped.committee) - lshaped.nscenarios
     if isempty(inactive) || diff <= 0
