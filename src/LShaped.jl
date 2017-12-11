@@ -17,20 +17,14 @@ export
     RegularizedLShapedSolver,
     TrustRegionLShapedSolver,
     AsynchronousLShapedSolver,
-    updateSubProblem!,
-    LPProblem,
     LPSolver,
-    loadStandardForm!,
-    addRows!,
-    addCols!,
-    status,
-    updateSolution
+    get_solution,
+    get_objective_value
 
 JuMPModel = JuMP.Model
 JuMPVariable = JuMP.Variable
 
 # Include files
-include("LPProblem.jl")
 include("LPSolver.jl")
 include("subproblem.jl")
 include("AbstractLShaped.jl")

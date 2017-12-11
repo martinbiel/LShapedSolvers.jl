@@ -1,48 +1,45 @@
-struct LShapedSolver{float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver} <: AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t}
+struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMPModel
 
     # Master
-    mastersolver::msolver_t
-    x::array_t
-    obj_hist::array_t
+    mastersolver::M
+    x::A
+    objhistory::A
 
     # Subproblems
     nscenarios::Int
-    subproblems::Vector{SubProblem{float_t,array_t,ssolver_t}}
-    subobjectives::array_t
+    subproblems::Vector{SubProblem{T,A,S}}
+    subobjectives::A
 
     # Cuts
-    θs::array_t
-    cuts::Vector{SparseHyperPlane{<:HyperPlaneType,float_t}}
+    θs::A
+    cuts::Vector{SparseHyperPlane{T}}
 
     # Params
-    τ::float_t
+    τ::T
 
     function (::Type{LShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
         !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
-        float_t = promote_type(eltype(x₀),Float32)
-        x₀_ = convert(AbstractVector{float_t},x₀)
-        array_t = typeof(x₀_)
+        T = promote_type(eltype(x₀),Float32)
+        x₀_ = convert(AbstractVector{T},x₀)
+        A = typeof(x₀_)
 
         msolver = LQSolver(model,mastersolver)
-        msolver_t = typeof(msolver)
-        ssolver_t = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        M = typeof(msolver)
+        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
 
-        lshaped = new{float_t,
-                      array_t,
-                      msolver_t,
-                      ssolver_t}(model,
-                                 msolver,
-                                 x₀_,
-                                 array_t(),
-                                 num_scenarios(model),
-                                 Vector{SubProblem{float_t,array_t,ssolver_t}}(),
-                                 array_t(),
-                                 array_t(),
-                                 Vector{SparseHyperPlane{<:HyperPlaneType,float_t}}(),
-                                 convert(float_t,1e-6))
+        lshaped = new{T,A,M,S}(model,
+                               msolver,
+                               x₀_,
+                               A(),
+                               num_scenarios(model),
+                               Vector{SubProblem{T,A,S}}(),
+                               A(zeros(num_scenarios(model))),
+                               A(fill(-Inf,num_scenarios(model))),
+                               Vector{SparseHyperPlane{T}}(),
+                               convert(T,1e-6))
         init!(lshaped,subsolver)
 
         return lshaped
@@ -50,20 +47,20 @@ struct LShapedSolver{float_t <: Real, array_t <: AbstractVector, msolver_t <: LQ
 end
 LShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = LShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
 
-function (lshaped::LShapedSolver{float_t,array_t,msolver_t,ssolver_t})() where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
+function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     println("Starting L-Shaped procedure")
     println("======================")
 
     println("Main loop")
     println("======================")
 
-    obj = convert(float_t,Inf)
+    obj = convert(T,Inf)
 
     while true
         # Resolve all subproblems at the current optimal solution
         resolve_subproblems!(lshaped)
         obj = calculate_objective_value(lshaped)
-        push!(lshaped.obj_hist,obj)
+        push!(lshaped.objhistory,obj)
 
         if check_optimality(lshaped)
             # Optimal
@@ -94,7 +91,7 @@ end
 #     masterSolver::AbstractLQSolver
 #     x::AbstractVector
 #     obj::Real
-#     obj_hist::AbstractVector
+#     objhistory::AbstractVector
 
 #     # Subproblems
 #     nscenarios::Integer
@@ -180,7 +177,7 @@ end
 #         # Update master solution
 #         updateSolution!(lshaped)
 #         updateObjectiveValue!(lshaped)
-#         push!(lshaped.obj_hist,lshaped.obj)
+#         push!(lshaped.objhistory,lshaped.obj)
 #         for rx in lshaped.masterColumns
 #             put!(rx,lshaped.x)
 #         end

@@ -1,31 +1,31 @@
-struct SubProblem{float_t <: Real, array_t <: AbstractVector, solver_t <: LQSolver}
+struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
     id::Int
-    π::float_t
+    π::T
 
-    solver::solver_t
+    solver::S
 
-    h::Tuple{array_t,array_t}
-    x::array_t
-    y::array_t
-    masterterms::Vector{Tuple{Int,Int,float_t}}
+    h::Tuple{A,A}
+    x::A
+    y::A
+    masterterms::Vector{Tuple{Int,Int,T}}
 
     function (::Type{SubProblem})(model::JuMPModel,parent::JuMPModel,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
-        float_t = promote_type(eltype(x),eltype(y₀),Float32)
-        x_ = convert(AbstractVector{float_t},x)
-        y₀_ = convert(AbstractVector{float_t},y₀)
-        array_t = typeof(x)
+        T = promote_type(eltype(x),eltype(y₀),Float32)
+        x_ = convert(AbstractVector{T},x)
+        y₀_ = convert(AbstractVector{T},y₀)
+        A = typeof(x)
 
         solver = LQSolver(model,optimsolver)
 
-        subproblem = new{float_t,array_t,typeof(solver)}(id,
-                                                         π,
-                                                         solver,
-                                                         (convert(array_t,getconstrLB(solver.lqmodel)),
-                                                          convert(array_t,getconstrUB(solver.lqmodel))),
-                                                         x_,
-                                                         y₀_,
-                                                         Vector{Tuple{Int,Int,float_t}}()
-                                                         )
+        subproblem = new{T,A,typeof(solver)}(id,
+                                             π,
+                                             solver,
+                                             (convert(A,getconstrLB(solver.lqmodel)),
+                                              convert(A,getconstrUB(solver.lqmodel))),
+                                             x_,
+                                             y₀_,
+                                             Vector{Tuple{Int,Int,T}}()
+                                             )
         parseSubProblem!(subproblem,model,parent)
 
         return subproblem

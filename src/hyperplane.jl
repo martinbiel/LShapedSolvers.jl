@@ -5,15 +5,15 @@ abstract type FeasibilityCut <: HyperPlaneType end
 abstract type LinearConstraint <: HyperPlaneType end
 abstract type Unbounded <: HyperPlaneType end
 
-struct HyperPlane{htype <: HyperPlaneType, float_t <: Real, array_t <: AbstractVector}
-    δQ::array_t
-    q::float_t
+struct HyperPlane{H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    δQ::A
+    q::T
     id::Int
 
-    function (::Type{HyperPlane})(δQ::AbstractVector, q::Real, id::Int, ::Type{htype}) where htype <: HyperPlaneType
-        float_t = promote_type(eltype(δQ),Float32)
-        δQ_ = convert(AbstractVector{float_t},δQ)
-        new{htype, float_t, typeof(δQ_)}(δQ_,q,id)
+    function (::Type{HyperPlane})(δQ::AbstractVector, q::Real, id::Int, ::Type{H}) where H <: HyperPlaneType
+        T = promote_type(eltype(δQ),Float32)
+        δQ_ = convert(AbstractVector{T},δQ)
+        new{H, T, typeof(δQ_)}(δQ_,q,id)
     end
 end
 OptimalityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,OptimalityCut)
@@ -21,9 +21,12 @@ FeasibilityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,Feasib
 LinearConstraint(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,LinearConstraint)
 Unbounded(id::Int) = HyperPlane{[],Inf,id,Unbounded}
 
-SparseHyperPlane{htype <: HyperPlaneType, float_t <: Real} = HyperPlane{htype,float_t,SparseVector{float_t,Int64}}
+SparseHyperPlane{T <: Real} = HyperPlane{<:HyperPlaneType,T,SparseVector{T,Int64}}
+SparseOptimalityCut{T <: Real} = HyperPlane{OptimalityCut,T,SparseVector{T,Int64}}
+SparseFeasibilityCut{T <: Real} = HyperPlane{FeasibilityCut,T,SparseVector{T,Int64}}
+SparseLinearConstraint{T <: Real} = HyperPlane{LinearConstraint,T,SparseVector{T,Int64}}
 
-function (hyperplane::HyperPlane{htype})(x::AbstractVector) where htype <: HyperPlaneType
+function (hyperplane::HyperPlane{H})(x::AbstractVector) where H <: HyperPlaneType
     if length(hyperplane.δQ) != length(x)
         throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(hyperplane.δQ),length(x))))
     end
@@ -76,10 +79,10 @@ function gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut})
         return Inf
     end
 end
-function lowlevel(hyperplane::HyperPlane{htype,float_t,SparseVector{float_t,Int}}) where {htype <: HyperPlaneType, float_t <: Real}
+function lowlevel(hyperplane::HyperPlane{H,T,SparseVector{T,Int}}) where {H <: HyperPlaneType, T <: Real}
     return hyperplane.δQ.nzind,hyperplane.δQ.nzval,hyperplane.q,Inf
 end
-function lowlevel(cut::HyperPlane{OptimalityCut,float_t,SparseVector{float_t,Int}}) where float_t <: Real
+function lowlevel(cut::HyperPlane{OptimalityCut,T,SparseVector{T,Int}}) where T <: Real
     nzind = copy(cut.δQ.nzind)
     nzval = copy(cut.δQ.nzval)
     push!(nzind,length(cut.δQ)+cut.id)

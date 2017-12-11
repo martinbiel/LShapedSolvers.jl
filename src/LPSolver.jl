@@ -1,6 +1,6 @@
-struct LQSolver{model_t <: AbstractLinearQuadraticModel, solver_t <: AbstractMathProgSolver}
-    lqmodel::model_t
-    optimsolver::solver_t
+struct LQSolver{M <: AbstractLinearQuadraticModel, S <: AbstractMathProgSolver}
+    lqmodel::M
+    optimsolver::S
 
     function (::Type{LQSolver})(model::JuMPModel,optimsolver::AbstractMathProgSolver)
         lqmodel = LinearQuadraticModel(optimsolver)
@@ -57,6 +57,45 @@ function getduals(solver::LQSolver)
 end
 
 status(solver::LQSolver) = MathProgBase.SolverInterface.status(solver.lqmodel)
+
+function loadLP(m::JuMPModel)
+    l = m.colLower
+    u = m.colUpper
+
+    # Build objective
+    # ==============================
+    c = JuMP.prepAffObjective(m)
+
+    # Build constraints
+    # ==============================
+    # Non-zero row indices
+    I = Vector{Int}()
+    # Non-zero column indices
+    J = Vector{Int}()
+    # Non-zero values
+    V = Vector{Float64}()
+    # Lower constraint bound
+    lb = zeros(Float64,length(m.linconstr))
+    # Upper constraint bound
+    ub = zeros(Float64,length(m.linconstr))
+
+    for (i,constr) in enumerate(m.linconstr)
+        coeffs = constr.terms.coeffs
+        vars = constr.terms.vars
+        @inbounds for (j,var) = enumerate(vars)
+            if var.m == m
+                push!(I,i)
+                push!(J,var.col)
+                push!(V,coeffs[j])
+            end
+        end
+        lb[i] = constr.lb
+        ub[i] = constr.ub
+    end
+    A = sparse(I,J,V,length(m.linconstr),m.numCols)
+
+    return A,l,u,c,lb,ub,m.objSense
+end
 
 function getVariableDuals(solver::LQSolver,d::AbstractVector)
     l = getvarLB(solver.lqmodel)

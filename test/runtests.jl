@@ -45,32 +45,32 @@ end
 
 @testset "L-Shaped Solver" begin
     m,ref = simplemodel()
+    solver = ClpSolver()
     solve(ref)
 
-    ls = LShapedSolver(m)
+    ls = LShapedSolver(m,solver,solver)
     ls()
-    @test norm(ls.x - ref.colVal[1:2]) <= 1e-6
-    @test abs(ls.obj - ref.objVal) <= 1e-6
+    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
 @testset "L-Shaped Solver with Regularization" begin
     m,ref = simplemodel()
-    a = rand(2)
     solve(ref)
 
-    ls = RegularizedLShapedSolver(m,a)
+    ls = RegularizedLShapedSolver(m)
     ls()
-    @test norm(ls.x - ref.colVal[1:2]) <= 1e-6
-    @test abs(ls.obj - ref.objVal) <= 1e-6
+    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
 @testset "L-Shaped Solver with Trust-Region" begin
     m,ref = simplemodel()
-    a = rand(2)
+    solver = ClpSolver()
     solve(ref)
 
-    ls = TrustRegionLShapedSolver(m,a)
+    ls = TrustRegionLShapedSolver(m,solver,solver)
     ls()
-    @test norm(ls.x - ref.colVal[1:2]) <= 1e-6
-    @test abs(ls.obj - ref.objVal) <= 1e-6
+    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end

@@ -1,4 +1,4 @@
-abstract type AbstractLShapedSolver{float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver} end
+abstract type AbstractLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} end
 
 nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
@@ -12,9 +12,7 @@ end
 
 # Initialization #
 # ======================================================================== #
-function init!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t},subsolver::AbstractMathProgSolver) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
-    append!(lshaped.subobjectives,zeros(lshaped.nscenarios))
-    append!(lshaped.θs,fill(-Inf,lshaped.nscenarios))
+function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
@@ -35,24 +33,32 @@ end
 
 function update_structuredmodel!(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
     lshaped.structuredmodel.colVal = copy(lshaped.x)
     lshaped.structuredmodel.objVal = c⋅lshaped.x + sum(lshaped.subobjectives)
-    lshaped.structuredmodel.objVal *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
 
     for i in 1:lshaped.nscenarios
         m = getchildren(lshaped.structuredmodel)[i]
         m.colVal = copy(getsolution(lshaped.subproblems[i].solver))
         m.objVal = getobjval(lshaped.subproblems[i].solver)
-        m.objVal *= m.objSense == :Min ? 1 : -1
     end
 end
 
 function calculate_objective_value(lshaped::AbstractLShapedSolver)
     c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
 
     return c⋅lshaped.x + sum(lshaped.subobjectives)
+end
+
+function get_solution(lshaped::AbstractLShapedSolver)
+    return lshaped.x
+end
+
+function get_objective_value(lshaped::AbstractLShapedSolver)
+    if :objhistory ∈ fieldnames(lshaped) && !isempty(lshaped.objhistory)
+        return lshaped.objhistory[end]
+    else
+        return calculate_objective_value(lshaped)
+    end
 end
 
 function extract_master!(lshaped::AbstractLShapedSolver,src::JuMPModel)
@@ -157,7 +163,7 @@ end
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
 end
 
-@define_traitfn UsesLocalization function initSolverData!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t}) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
+@define_traitfn UsesLocalization function initSolverData!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     nothing
 end
 
@@ -167,7 +173,6 @@ end
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
     c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
     θ = c⋅lshaped.x + sum(lshaped.θs)
 
     if abs(θ - lshaped.Q̃) <= lshaped.τ*(1+abs(lshaped.Q̃))
@@ -199,12 +204,12 @@ end
 # ------------------------------------------------------------
 @define_trait IsParallel
 
-@define_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver{float_t,array_t,msolver_t,ssolver_t},subsolver::AbstractMathProgSolver) where {float_t <: Real, array_t <: AbstractVector, msolver_t <: LQSolver, ssolver_t <: LQSolver}
+@define_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Prepare the subproblems
     m = lshaped.structuredmodel
     π = getprobability(m)
     for i = 1:lshaped.nscenarios
-        x₀ = convert(array_t,rand(getchildren(m)[i].numCols))
+        x₀ = convert(A,rand(getchildren(m)[i].numCols))
         push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),x₀,subsolver))
     end
     lshaped
@@ -243,13 +248,11 @@ end
 
 @define_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)
     c = JuMP.prepAffObjective(lshaped.structuredModel)
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     return c⋅x + sum([subprob.π*subprob(x) for subprob in lshaped.subProblems])
 end
 
 @implement_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)
     c = lshaped.structuredModel.obj.aff.coeffs
-    c *= lshaped.structuredModel.objSense == :Min ? 1 : -1
     objidx = [v.col for v in lshaped.structuredModel.obj.aff.vars]
     return c⋅x[objidx] + sum(fetch.([@spawnat w calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
 end
