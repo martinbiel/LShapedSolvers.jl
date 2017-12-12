@@ -27,7 +27,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 
     # Regularizer
     ξ::A
-    Q̃_history::A
+    Q_history::A
     Δ̅_history::A
 
     # Cuts
@@ -39,14 +39,14 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     γ::T
     τ::T
 
-    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
-        length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
+    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+        length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
-        T = promote_type(eltype(x₀),Float32)
+        T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        x₀_ = convert(AbstractVector{T},x₀)
-        A = typeof(x₀_)
+        ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
+        A = typeof(ξ₀_)
 
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
@@ -56,14 +56,14 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                RegularizedSolverData{T}(),
                                msolver,
                                c_,
-                               convert(A,rand(length(x₀_))),
+                               convert(A,rand(length(ξ₀_))),
                                convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
                                Vector{SparseHyperPlane{T}}(),
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                num_scenarios(model),
                                Vector{SubProblem{T,A,S}}(),
                                A(zeros(num_scenarios(model))),
-                               x₀_,
+                               ξ₀_,
                                A(),
                                A(),
                                A(fill(-Inf,num_scenarios(model))),
@@ -85,36 +85,10 @@ function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
     print(io,"RegularizedLShapedSolver")
 end
 
-function prepareMaster!(lshaped::RegularizedLShapedSolver,n::Integer)
-    # θs
-    for i = 1:n
-        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
-    end
-    update_objective!(lshaped)
-end
-
-function update_objective!(lshaped::RegularizedLShapedSolver)
-    # Linear regularizer penalty
-    c = copy(lshaped.c)
-    c -= (1/lshaped.solverdata.σ)*lshaped.ξ
-    append!(c,fill(1.0,lshaped.nscenarios))
-    setobj!(lshaped.mastersolver.lqmodel,c)
-
-    # Quadratic regularizer penalty
-    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = fill(1/lshaped.solverdata.σ,length(lshaped.ξ))
-    append!(qval,zeros(lshaped.nscenarios))
-    if applicable(setquadobj!,lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-        setquadobj!(lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-    else
-        error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
-    end
-end
-
 function (lshaped::RegularizedLShapedSolver)()
     println("Starting L-Shaped procedure with regularized decomposition")
     println("======================")
-    lshaped.solverdata.Q̃ = calculateObjective(lshaped,lshaped.ξ)
+    #lshaped.solverdata.Q̃ = calculateObjective(lshaped,lshaped.ξ)
     println("Main loop")
     println("======================")
 
@@ -157,9 +131,10 @@ function (lshaped::RegularizedLShapedSolver)()
 
         if check_optimality(lshaped)
             if lshaped.solverdata.Δ̅ > lshaped.τ && norm(lshaped.x-lshaped.ξ,Inf) - lshaped.solverdata.Δ̅ <= lshaped.τ
-                lshaped.solverdata.σ *= 1/(norm(lshaped.x-lshaped.ξ,Inf))
+                lshaped.solverdata.σ *= 4
             else
                 # Optimal
+                update_structuredmodel!(lshaped)
                 println("Optimal!")
                 println("Objective value: ", calculate_objective_value(lshaped))
                 println("======================")
@@ -172,7 +147,9 @@ end
 
 ## Trait functions
 # ------------------------------------------------------------
-@implement_traitfn IsRegularized function initSolverData!(lshaped::AbstractLShapedSolver)
+@define_traitfn UsesLocalization update_objective!(lshaped::AbstractLShapedSolver)
+
+@implement_traitfn IsRegularized function init_solver!(lshaped::AbstractLShapedSolver)
     lshaped.solverdata.Q̃ = Inf
     lshaped.solverdata.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
     push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
@@ -180,6 +157,8 @@ end
     lshaped.solverdata.exact_steps = 0
     lshaped.solverdata.approximate_steps = 0
     lshaped.solverdata.null_steps = 0
+
+    update_objective!(lshaped)
 end
 
 @implement_traitfn IsRegularized function take_step!(lshaped::AbstractLShapedSolver)
@@ -191,7 +170,7 @@ end
         push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = obj
-        push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
         lshaped.solverdata.exact_steps += 1
         lshaped.solverdata.σ *= 4
         update_objective!(lshaped)
@@ -201,7 +180,7 @@ end
         push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = obj
-        push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
         lshaped.solverdata.approximate_steps += 1
     else
         println("Null step")
@@ -211,17 +190,20 @@ end
     end
 end
 
-@implement_traitfn IsRegularized function remove_inactive!(lshaped::AbstractLShapedSolver)
-    inactive = find(c->!active(lshaped,c),lshaped.committee)
-    diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
-    if isempty(inactive) || diff <= 0
-        return false
+@implement_traitfn IsRegularized function update_objective!(lshaped::AbstractLShapedSolver)
+    # Linear regularizer penalty
+    c = copy(lshaped.c)
+    c -= (1/lshaped.solverdata.σ)*lshaped.ξ
+    append!(c,fill(1.0,lshaped.nscenarios))
+    setobj!(lshaped.mastersolver.lqmodel,c)
+
+    # Quadratic regularizer penalty
+    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
+    qval = fill(1/lshaped.solverdata.σ,length(lshaped.ξ))
+    append!(qval,zeros(lshaped.nscenarios))
+    if applicable(setquadobj!,lshaped.mastersolver.lqmodel,qidx,qidx,qval)
+        setquadobj!(lshaped.mastersolver.lqmodel,qidx,qidx,qval)
+    else
+        error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
     end
-    if diff <= length(inactive)
-        inactive = inactive[1:diff]
-    end
-    append!(lshaped.inactive,lshaped.committee[inactive])
-    deleteat!(lshaped.committee,inactive)
-    delconstrs!(lshaped.mastersolver.lqmodel,inactive)
-    return true
 end

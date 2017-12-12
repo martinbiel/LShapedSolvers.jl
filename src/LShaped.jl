@@ -32,6 +32,6 @@ include("AbstractLShaped.jl")
 include("hyperplane.jl")
 include("solvers/LShapedSolver.jl")
 include("solvers/RegularizedLShapedSolver.jl")
-#include("solvers/TrustRegionLShapedSolver.jl")
+include("solvers/TrustRegionLShapedSolver.jl")
 
 end # module

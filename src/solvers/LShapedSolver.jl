@@ -4,7 +4,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
     # Master
     mastersolver::M
     x::A
-    objhistory::A
+    Q_history::A
 
     # Subproblems
     nscenarios::Int
@@ -60,7 +60,7 @@ function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVect
         # Resolve all subproblems at the current optimal solution
         resolve_subproblems!(lshaped)
         obj = calculate_objective_value(lshaped)
-        push!(lshaped.objhistory,obj)
+        push!(lshaped.Q_history,obj)
 
         if check_optimality(lshaped)
             # Optimal
@@ -91,7 +91,7 @@ end
 #     masterSolver::AbstractLQSolver
 #     x::AbstractVector
 #     obj::Real
-#     objhistory::AbstractVector
+#     Q_history::AbstractVector
 
 #     # Subproblems
 #     nscenarios::Integer
@@ -177,7 +177,7 @@ end
 #         # Update master solution
 #         updateSolution!(lshaped)
 #         updateObjectiveValue!(lshaped)
-#         push!(lshaped.objhistory,lshaped.obj)
+#         push!(lshaped.Q_history,lshaped.obj)
 #         for rx in lshaped.masterColumns
 #             put!(rx,lshaped.x)
 #         end

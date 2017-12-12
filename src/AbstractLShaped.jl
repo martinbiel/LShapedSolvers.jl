@@ -16,8 +16,8 @@ function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathPr
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
-    initSolverData!(lshaped)
-    initSolver!(lshaped,subsolver)
+    init_solver!(lshaped)
+    init_subproblems!(lshaped,subsolver)
 end
 
 # ======================================================================== #
@@ -174,7 +174,7 @@ end
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
 end
 
-@define_traitfn UsesLocalization function initSolverData!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+@define_traitfn UsesLocalization function init_solver!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     nothing
 end
 
@@ -193,7 +193,21 @@ end function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
 end
 
 @define_traitfn UsesLocalization take_step!(lshaped::AbstractLShapedSolver)
-@define_traitfn UsesLocalization remove_inactive!(lshaped::AbstractLShapedSolver)
+
+@define_traitfn UsesLocalization remove_inactive!(lshaped::AbstractLShapedSolver) function remove_inactive!(lshaped::AbstractLShapedSolver,UsesLocalization)
+    inactive = find(c->!active(lshaped,c),lshaped.committee)
+    diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
+    if isempty(inactive) || diff <= 0
+        return false
+    end
+    if diff <= length(inactive)
+        inactive = inactive[1:diff]
+    end
+    append!(lshaped.inactive,lshaped.committee[inactive])
+    deleteat!(lshaped.committee,inactive)
+    delconstrs!(lshaped.mastersolver.lqmodel,inactive)
+    return true
+end
 
 @define_traitfn UsesLocalization queueViolated!(lshaped::AbstractLShapedSolver) function queueViolated!(lshaped::AbstractLShapedSolver,UsesLocalization)
     violating = find(c->violated(lshaped,c),lshaped.inactive)
@@ -213,7 +227,7 @@ end
 # ------------------------------------------------------------
 @define_trait IsParallel
 
-@define_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+@define_traitfn IsParallel function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Prepare the subproblems
     m = lshaped.structuredmodel
     π = getprobability(m)
@@ -224,7 +238,7 @@ end
     lshaped
 end
 
-@implement_traitfn IsParallel function initSolver!(lshaped::AbstractLShapedSolver)
+@implement_traitfn IsParallel function init_subproblems!(lshaped::AbstractLShapedSolver,subsolver)
     # Workers
     lshaped.subworkers = Vector{RemoteChannel}(nworkers())
     lshaped.cutQueue = RemoteChannel(() -> Channel{Hyperplane}(4*nworkers()*lshaped.nscenarios))
