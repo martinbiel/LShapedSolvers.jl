@@ -42,39 +42,29 @@ end
 
 bounded(hyperplane::HyperPlane) = true
 bounded(hyperplane::HyperPlane{Unbounded}) = false
-function optimal(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut})
-    Q = cut(lshaped.x)
-    θ = lshaped.θs[cut.id]
-    return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(Q))
+function optimal(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real,τ::Real)
+    Q = cut(x)
+    return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
 end
-function active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane)
-    Gval,g = hyperplane(lshaped.x)
-    return abs(Gval-g) <= lshaped.τ*(1+abs(Gval))
+function active(hyperplane::HyperPlane,x::AbstractVector,τ::Real)
+    Gval,g = hyperplane(x)
+    return abs(Gval-g) <= τ*(1+abs(Gval))
 end
-function active(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut})
-    optimal(lshaped,cut)
+function satisfied(hyperplane::HyperPlane,x::AbstractVector,τ::Real)
+    Gval,g = hyperplane(x)
+    return Gval >= g - τ*(1+abs(Gval))
 end
-function satisfied(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane)
-    Gval,g = hyperplane(lshaped.x)
-    return Gval >= g - lshaped.τ*(1+abs(Gval))
+function satisfied(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real,τ::Real)
+    Q = cut(x)
+    return θ > -Inf && θ >= Q - τ*(1+abs(Q))
 end
-function satisfied(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut})
-    Q = cut(lshaped.x)
-    θ = lshaped.θs[cut.id]
-    return θ > -Inf && θ >= Q - lshaped.τ*(1+abs(Q))
-end
-function violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane)
-    return !satisfied(lshaped,hyperplane)
-end
-function gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane)
-    Gval,g = hyperplane(lshaped.x)
+function gap(hyperplane::HyperPlane,x::AbstractVector)
+    Gval,g = hyperplane(x)
     return Gval-g
 end
-function gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut})
-    Q = cut(lshaped.x)
-    θ = lshaped.θs[cut.id]
+function gap(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real)
     if θ > -Inf
-        return θ-Q
+        return θ-cut(x)
     else
         return Inf
     end
@@ -146,52 +136,3 @@ end
 
 Unbounded(subprob::SubProblem) = Unbounded(subprob.id)
 # ======================================================================== #
-
-#  #
-# ======================================================================== #
-function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector)
-    Q = cut(x)
-    θ = lshaped.θs[cut.id]
-    τ = lshaped.τ
-
-    lshaped.subobjectives[cut.id] = Q
-
-    println("θ",cut.id,": ", θ)
-    println("Q",cut.id,": ", Q)
-
-    if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
-        # Optimal with respect to this subproblem
-        println("Optimal with respect to subproblem ", cut.id)
-        return false
-    end
-
-    println("Added Optimality Cut")
-    if hastrait(lshaped,UsesLocalization)
-        push!(lshaped.committee,cut)
-    end
-    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    push!(lshaped.cuts,cut)
-    return true
-end
-addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
-
-function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
-    D = cut.δQ
-    d = cut.q
-
-    # Scale to avoid numerical issues
-    scaling = abs(d)
-    if scaling == 0
-        scaling = maximum(D)
-    end
-
-    D = D/scaling
-
-    println("Added Feasibility Cut")
-    if hastrait(lshaped,UsesLocalization)
-        push!(lshaped.committee,cut)
-    end
-    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    push!(lshaped.cuts,cut)
-    return true
-end

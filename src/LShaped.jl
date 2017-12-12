@@ -17,7 +17,7 @@ export
     LShapedSolver,
     RegularizedLShapedSolver,
     TrustRegionLShapedSolver,
-    AsynchronousLShapedSolver,
+    PLShapedSolver,
     LPSolver,
     get_solution,
     get_objective_value
@@ -28,9 +28,10 @@ JuMPVariable = JuMP.Variable
 # Include files
 include("LPSolver.jl")
 include("subproblem.jl")
-include("AbstractLShaped.jl")
 include("hyperplane.jl")
+include("AbstractLShaped.jl")
 include("solvers/LShapedSolver.jl")
+include("solvers/PLShapedSolver.jl")
 include("solvers/RegularizedLShapedSolver.jl")
 include("solvers/TrustRegionLShapedSolver.jl")
 

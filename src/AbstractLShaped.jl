@@ -33,10 +33,8 @@ function update_solution!(lshaped::AbstractLShapedSolver)
 end
 
 function update_structuredmodel!(lshaped::AbstractLShapedSolver)
-    c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
     lshaped.structuredmodel.colVal = copy(lshaped.x)
-    lshaped.structuredmodel.objVal = c⋅lshaped.x + sum(lshaped.subobjectives)
+    lshaped.structuredmodel.objVal = lshaped.c⋅lshaped.x + sum(lshaped.subobjectives)
 
     for i in 1:lshaped.nscenarios
         m = getchildren(lshaped.structuredmodel)[i]
@@ -47,17 +45,11 @@ function update_structuredmodel!(lshaped::AbstractLShapedSolver)
 end
 
 function calculate_estimate(lshaped::AbstractLShapedSolver)
-    c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
-
-    return c⋅lshaped.x + sum(lshaped.θs)
+    return lshaped.c⋅lshaped.x + sum(lshaped.θs)
 end
 
 function calculate_objective_value(lshaped::AbstractLShapedSolver)
-    c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    c *= lshaped.structuredmodel.objSense == :Min ? 1 : -1
-
-    return c⋅lshaped.x + sum(lshaped.subobjectives)
+    return lshaped.c⋅lshaped.x + sum(lshaped.subobjectives)
 end
 
 function get_solution(lshaped::AbstractLShapedSolver)
@@ -65,42 +57,11 @@ function get_solution(lshaped::AbstractLShapedSolver)
 end
 
 function get_objective_value(lshaped::AbstractLShapedSolver)
-    if :objhistory ∈ fieldnames(lshaped) && !isempty(lshaped.objhistory)
-        return lshaped.objhistory[end]
+    if !isempty(lshaped.Q_history)
+        return lshaped.Q_history[end]
     else
         return calculate_objective_value(lshaped)
     end
-end
-
-function extract_master!(lshaped::AbstractLShapedSolver,src::JuMPModel)
-    @assert haskey(src.ext,:Stochastic) "The provided model is not structured"
-
-    # Minimal copy of master part of structured problem
-    master = Model()
-
-    if src.colNames[1] == ""
-        for varFamily in src.dictList
-            JuMP.fill_var_names(JuMP.REPLMode,src.colNames,varFamily)
-        end
-    end
-
-    # Objective
-    master.obj = copy(src.obj, master)
-    master.objSense = src.objSense
-
-    # Constraint
-    master.linconstr  = map(c->copy(c, master), src.linconstr)
-
-    # Variables
-    master.numCols = src.numCols
-    master.colNames = src.colNames[:]
-    master.colNamesIJulia = src.colNamesIJulia[:]
-    master.colLower = src.colLower[:]
-    master.colUpper = src.colUpper[:]
-    master.colCat = src.colCat[:]
-    master.colVal = src.colVal[:]
-
-    lshaped.masterModel = master
 end
 
 function prepare_master!(lshaped::AbstractLShapedSolver)
@@ -110,14 +71,14 @@ function prepare_master!(lshaped::AbstractLShapedSolver)
     end
 end
 
-function resolve_subproblems!(lshaped::AbstractLShapedSolver)
+function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
 
     # Solve sub problems
     for subproblem ∈ lshaped.subproblems
         println("Solving subproblem: ",subproblem.id)
-        cut = subproblem()
+        cut::SparseHyperPlane{T} = subproblem()
         if !bounded(cut)
             println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
             println("======================")
@@ -126,42 +87,113 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver)
         addcut!(lshaped,cut)
     end
 end
+
+# Cut functions #
+# ======================================================================== #
+active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.τ)
+active(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = optimal(cut,lshaped.x,lshaped.θs[cut.id],lshaped.τ)
+satisfied(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = satisfied(hyperplane,lshaped.x,lshaped.τ)
+satisfied(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = satisfied(cut,lshaped.x,lshaped.θs[cut.id],lshaped.τ)
+violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = !satisfied(lshaped,hyperplane)
+gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = gap(hyperplane,lshaped.x)
+gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lshaped.x,lshaped.θs[cut.id])
+
+function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector)
+    Q = cut(x)
+    θ = lshaped.θs[cut.id]
+    τ = lshaped.τ
+
+    lshaped.subobjectives[cut.id] = Q
+
+    println("θ",cut.id,": ", θ)
+    println("Q",cut.id,": ", Q)
+
+    if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
+        # Optimal with respect to this subproblem
+        println("Optimal with respect to subproblem ", cut.id)
+        return false
+    end
+
+    println("Added Optimality Cut")
+    if hastrait(lshaped,UsesLocalization)
+        push!(lshaped.committee,cut)
+    end
+    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    push!(lshaped.cuts,cut)
+    return true
+end
+addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
+
+function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
+    D = cut.δQ
+    d = cut.q
+
+    # Scale to avoid numerical issues
+    scaling = abs(d)
+    if scaling == 0
+        scaling = maximum(D)
+    end
+
+    D = D/scaling
+
+    println("Added Feasibility Cut")
+    if hastrait(lshaped,UsesLocalization)
+        push!(lshaped.committee,cut)
+    end
+    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    push!(lshaped.cuts,cut)
+    return true
+end
 # ======================================================================== #
 
 # Parallel routines #
 # ======================================================================== #
-function init_subworker(subworker::RemoteChannel,parent::JuMPModel,submodels::Vector{JuMPModel},πs::AbstractVector,ids::AbstractVector)
-    subproblems = Vector{SubProblem}(length(ids))
+SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
+MasterColumn{A} = RemoteChannel{Channel{A}}
+CutQueue{T} = RemoteChannel{Channel{SparseHyperPlane{T}}}
+
+function init_subworker!(subworker::SubWorker{T,A,S},
+                         parent::JuMPModel,
+                         submodels::Vector{JuMPModel},
+                         πs::A,
+                         x::A,
+                         subsolver::AbstractMathProgSolver,
+                         ids::Vector{Int}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems = Vector{SubProblem{T,A,S}}(length(ids))
     for (i,id) = enumerate(ids)
-        subproblems[i] = SubProblem(submodels[i],parent,id,πs[i])
+        y₀ = convert(A,rand(submodels[i].numCols))
+        subproblems[i] = SubProblem(submodels[i],parent,id,πs[i],x,y₀,subsolver)
     end
     put!(subworker,subproblems)
 end
 
-function work_on_subproblems(subworker::RemoteChannel,cuts::RemoteChannel,rx::RemoteChannel)
-    subproblems = fetch(subworker)
+function work_on_subproblems!(subworker::SubWorker{T,A,S},
+                              cuts::CutQueue{T},
+                              rx::MasterColumn{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     while true
         wait(rx)
-        x = take!(rx)
+        x::A = take!(rx)
         if isempty(x)
             println("Worker finished")
             return
         end
-        updateSubProblems!(subproblems,x)
-        for subprob in subproblems
-            println("Solving subproblem: ",subprob.id)
-            put!(cuts,subprob())
-            println("Subproblem: ",subprob.id," solved")
+        update_subproblems!(subproblems,x)
+        for subproblem in subproblems
+            println("Solving subproblem: ",subproblem.id)
+            put!(cuts,subproblem())
+            println("Subproblem: ",subproblem.id," solved")
         end
     end
 end
 
-function calculate_subobjective(subworker::RemoteChannel,x::AbstractVector)
-    subproblems = fetch(subworker)
+function calculate_subobjective(subworker::SubWorker{T,A,S},
+                                x::A) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     if length(subproblems) > 0
-        return sum([subprob.π*subprob(x) for subprob in subproblems])
+        return sum([subproblem.π*subproblem(x) for subproblem in subproblems])
     else
-        return zero(eltype(x))
+        return zero(T)
     end
 end
 
@@ -232,33 +264,36 @@ end
     m = lshaped.structuredmodel
     π = getprobability(m)
     for i = 1:lshaped.nscenarios
-        x₀ = convert(A,rand(getchildren(m)[i].numCols))
-        push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),x₀,subsolver))
+        y₀ = convert(A,rand(getchildren(m)[i].numCols))
+        push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),y₀,subsolver))
     end
     lshaped
 end
 
-@implement_traitfn IsParallel function init_subproblems!(lshaped::AbstractLShapedSolver,subsolver)
-    # Workers
-    lshaped.subworkers = Vector{RemoteChannel}(nworkers())
-    lshaped.cutQueue = RemoteChannel(() -> Channel{Hyperplane}(4*nworkers()*lshaped.nscenarios))
-    lshaped.masterColumns = Vector{RemoteChannel}(nworkers())
+@implement_traitfn IsParallel function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    # Partitioning
     (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
     # One extra to guarantee coverage
     if extra > 0
         jobLength += 1
     end
-
     # Create subproblems on worker processes
+    m = lshaped.structuredmodel
     start = 1
     stop = jobLength
     @sync for w in workers()
-        lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem}}(1), w)
-        lshaped.masterColumns[w-1] = RemoteChannel(() -> Channel{AbstractVector}(5), w)
-        put!(lshaped.masterColumns[w-1],lshaped.x)
+        lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
+        lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{A}(10), w)
+        put!(lshaped.mastercolumns[w-1],lshaped.x)
         submodels = [getchildren(m)[i] for i = start:stop]
-        πs = [getprobability(lshaped.structuredModel)[i] for i = start:stop]
-        @spawnat w init_subworker(lshaped.subworkers[w-1],m,submodels,πs,collect(start:stop))
+        πs = [getprobability(m)[i] for i = start:stop]
+        @spawnat w init_subworker!(lshaped.subworkers[w-1],
+                                   m,
+                                   submodels,
+                                   πs,
+                                   lshaped.x,
+                                   subsolver,
+                                   collect(start:stop))
         if start > lshaped.nscenarios
             continue
         end
@@ -270,8 +305,7 @@ end
 end
 
 @define_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)
-    c = JuMP.prepAffObjective(lshaped.structuredmodel)
-    return c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
+    return lshaped.c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
 end
 
 @implement_traitfn IsParallel function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector)

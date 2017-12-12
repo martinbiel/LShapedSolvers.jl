@@ -13,6 +13,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 
     # Master
     mastersolver::M
+    c::A
     x::A
 
     committee::Vector{SparseHyperPlane{T}}
@@ -44,27 +45,30 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
+        c_ *= model.objSense == :Min ? 1 : -1
         ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(ξ₀_)
 
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        n = num_scenarios(model)
 
         lshaped = new{T,A,M,S}(model,
                                TrustRegionSolverData{T}(),
                                msolver,
+                               c_,
                                convert(A,rand(length(ξ₀_))),
                                convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
                                Vector{SparseHyperPlane{T}}(),
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
-                               num_scenarios(model),
+                               n,
                                Vector{SubProblem{T,A,S}}(),
-                               A(zeros(num_scenarios(model))),
+                               A(zeros(n)),
                                ξ₀_,
                                A(),
                                A(),
-                               A(fill(-Inf,num_scenarios(model))),
+                               A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                convert(T,1e-4),
                                convert(T,1e-6),

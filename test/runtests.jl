@@ -56,9 +56,10 @@ end
 
 @testset "L-Shaped Solver with Regularization" begin
     m,ref = simplemodel()
+    solver = Gurobi.GurobiSolver(OutputFlag=0)
     solve(ref)
 
-    ls = RegularizedLShapedSolver(m)
+    ls = RegularizedLShapedSolver(m,solver,solver)
     ls()
     @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
@@ -69,7 +70,7 @@ end
     solver = ClpSolver()
     solve(ref)
 
-    ls = TrustRegionLShapedSolver(m,solver,solver)
+    ls = TrustRegionLShapedSolver(m,[40,20.],solver,solver)
     ls()
     @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
