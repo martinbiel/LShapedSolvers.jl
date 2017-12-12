@@ -33,6 +33,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     # Cuts
     θs::A
     cuts::Vector{SparseHyperPlane{T}}
+    θ_history::A
 
     # Params
     γ::T
@@ -70,6 +71,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
+                               A(),
                                convert(T,1e-4),
                                convert(T,1e-6),
                                convert(T,1000*max(1.0,2*norm(ξ₀_,Inf)))
@@ -169,12 +171,14 @@ end
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,calculate_estimate(lshaped))
         enlarge_trustregion!(lshaped)
         lshaped.solverdata.major_steps += 1
     else
         println("Minor step")
         reduce_trustregion!(lshaped)
         push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,calculate_estimate(lshaped))
         lshaped.solverdata.minor_steps += 1
     end
 end

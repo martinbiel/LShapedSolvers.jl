@@ -33,6 +33,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     # Cuts
     θs::A
     cuts::Vector{SparseHyperPlane{T}}
+    θ_history::A
 
     # Params
     σ::T
@@ -70,6 +71,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
+                               A(),
                                convert(T,1.0),
                                convert(T,0.9),
                                convert(T,1e-6)
@@ -173,6 +175,7 @@ end
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = obj
         push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,calculate_estimate(lshaped))
         lshaped.solverdata.exact_steps += 1
         lshaped.solverdata.σ *= 4
         update_objective!(lshaped)
@@ -183,6 +186,7 @@ end
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = obj
         push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,calculate_estimate(lshaped))
         lshaped.solverdata.approximate_steps += 1
     else
         println("Null step")

@@ -98,8 +98,7 @@ violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = !satisfied(lsh
 gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = gap(hyperplane,lshaped.x)
 gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lshaped.x,lshaped.θs[cut.id])
 
-function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector)
-    Q = cut(x)
+function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q::Real)
     θ = lshaped.θs[cut.id]
     τ = lshaped.τ
 
@@ -122,6 +121,7 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x
     push!(lshaped.cuts,cut)
     return true
 end
+addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector) = addcut!(lshaped,cut,cut(x))
 addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
 
 function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
@@ -150,7 +150,8 @@ end
 # ======================================================================== #
 SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
 MasterColumn{A} = RemoteChannel{Channel{A}}
-CutQueue{T} = RemoteChannel{Channel{SparseHyperPlane{T}}}
+QCut{T} = Tuple{T,SparseHyperPlane{T}}
+CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
 function init_subworker!(subworker::SubWorker{T,A,S},
                          parent::JuMPModel,
@@ -172,7 +173,6 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                               rx::MasterColumn{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     while true
-        wait(rx)
         x::A = take!(rx)
         if isempty(x)
             println("Worker finished")
@@ -181,7 +181,9 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
         update_subproblems!(subproblems,x)
         for subproblem in subproblems
             println("Solving subproblem: ",subproblem.id)
-            put!(cuts,subproblem())
+            cut = subproblem()
+            Q::T = cut(x)
+            put!(cuts,(Q,cut))
             println("Subproblem: ",subproblem.id," solved")
         end
     end

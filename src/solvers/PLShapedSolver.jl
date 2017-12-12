@@ -6,6 +6,7 @@ struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
     c::A
     x::A
     Q_history::A
+    θ_history::A
 
     # Subproblems
     nscenarios::Int
@@ -47,11 +48,12 @@ struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
                                c_,
                                x₀_,
                                A(),
+                               A(),
                                n,
                                A(zeros(n)),
                                Vector{SubWorker{T,A,S}}(nworkers()),
                                Vector{MasterColumn{A}}(nworkers()),
-                               RemoteChannel(() -> Channel{SparseHyperPlane{T}}(4*nworkers()*n)),
+                               RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                convert(T,1e-6))
@@ -84,24 +86,26 @@ function (lshaped::PLShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVec
     end
     println("Main loop")
     println("======================")
+    tic()
     while true
         wait(lshaped.cutqueue)
         while isready(lshaped.cutqueue)
             println("Cuts are ready")
             # Add new cuts from subworkers
-            cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
+            Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
             if !bounded(cut)
                 println("Subproblem ",cut.id," is unbounded, aborting procedure.")
                 println("======================")
                 return
             end
-            addcut!(lshaped,cut)
+            addcut!(lshaped,cut,Q)
         end
 
         if check_optimality(lshaped)
             # Optimal
             map(rx->put!(rx,[]),lshaped.mastercolumns)
             #update_structuredmodel!(lshaped)
+            toc()
             map(wait,finished_workers)
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
@@ -121,6 +125,7 @@ function (lshaped::PLShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVec
             # Update master solution
             update_solution!(lshaped)
             push!(lshaped.Q_history,calculate_objective_value(lshaped))
+            push!(lshaped.θ_history,calculate_estimate(lshaped))
             for rx in lshaped.mastercolumns
                 put!(rx,lshaped.x)
             end

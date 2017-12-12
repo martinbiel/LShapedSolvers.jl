@@ -15,6 +15,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
     # Cuts
     θs::A
     cuts::Vector{SparseHyperPlane{T}}
+    θ_history::A
 
     # Params
     τ::T
@@ -44,6 +45,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
                                A(zeros(n)),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
+                               A(),
                                convert(T,1e-6))
         init!(lshaped,subsolver)
 
@@ -63,6 +65,7 @@ function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVect
         # Resolve all subproblems at the current optimal solution
         resolve_subproblems!(lshaped)
         push!(lshaped.Q_history,calculate_objective_value(lshaped))
+        push!(lshaped.θ_history,calculate_estimate(lshaped))
 
         if check_optimality(lshaped)
             # Optimal
