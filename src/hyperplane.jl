@@ -97,6 +97,7 @@ function OptimalityCut(subproblem::SubProblem)
 
     return OptimalityCut(δQ, q, subproblem.id)
 end
+ArtificialCut(val::Real,dim::Int,id::Int) = OptimalityCut(sparsevec(zeros(dim)), val, id)
 
 function FeasibilityCut(subproblem::SubProblem)
     @assert status(subproblem.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"

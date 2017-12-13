@@ -1,5 +1,7 @@
 @with_kw mutable struct RegularizedSolverData{T <: Real}
-    Q̃::T = Inf
+    Q::T = 1e10
+    Q̃::T = 1e10
+    θ::T = -1e10
     Δ̅::T = 1.0
     σ::T = 1.0
     exact_steps::Int = 0
@@ -47,6 +49,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
+        x₀_ = convert(AbstractVector{T},copy(ξ₀))
         ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(ξ₀_)
 
@@ -59,7 +62,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                RegularizedSolverData{T}(),
                                msolver,
                                c_,
-                               convert(A,rand(length(ξ₀_))),
+                               x₀_,
                                convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
                                Vector{SparseHyperPlane{T}}(),
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
@@ -92,14 +95,14 @@ end
 function (lshaped::RegularizedLShapedSolver)()
     println("Starting L-Shaped procedure with regularized decomposition")
     println("======================")
-    #lshaped.solverdata.Q̃ = calculateObjective(lshaped,lshaped.ξ)
+
     println("Main loop")
     println("======================")
 
     while true
         if isempty(lshaped.violating)
             # Resolve all subproblems at the current optimal solution
-            resolve_subproblems!(lshaped)
+            lshaped.solverdata.Q = resolve_subproblems!(lshaped)
             # Update the optimization vector
             take_step!(lshaped)
         else
@@ -128,13 +131,16 @@ function (lshaped::RegularizedLShapedSolver)()
         end
         # Update master solution
         update_solution!(lshaped)
+        lshaped.solverdata.θ = calculate_estimate(lshaped)
         remove_inactive!(lshaped)
         if length(lshaped.violating) <= lshaped.nscenarios
             queueViolated!(lshaped)
         end
+        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,lshaped.solverdata.θ)
 
         if check_optimality(lshaped)
-            if lshaped.solverdata.Δ̅ > lshaped.τ && norm(lshaped.x-lshaped.ξ,Inf) - lshaped.solverdata.Δ̅ <= lshaped.τ
+            if lshaped.solverdata.Δ̅ > lshaped.τ && norm(lshaped.x-lshaped.ξ) - lshaped.solverdata.Δ̅ <= lshaped.τ
                 lshaped.solverdata.σ *= 4
             else
                 # Optimal
@@ -154,7 +160,6 @@ end
 @define_traitfn UsesLocalization update_objective!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn IsRegularized function init_solver!(lshaped::AbstractLShapedSolver)
-    lshaped.solverdata.Q̃ = Inf
     lshaped.solverdata.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
     push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
     lshaped.solverdata.σ = lshaped.σ
@@ -166,27 +171,24 @@ end
 end
 
 @implement_traitfn IsRegularized function take_step!(lshaped::AbstractLShapedSolver)
-    obj = calculate_objective_value(lshaped)
+    Q = calculate_objective_value(lshaped)
+    Q̃ = lshaped.solverdata.Q̃
     θ = calculate_estimate(lshaped)
-    if abs(θ-obj) <= lshaped.τ*(1+abs(obj))
+    if abs(θ-Q) <= lshaped.τ*(1+abs(θ))
         println("Exact serious step")
         lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
         push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
-        lshaped.solverdata.Q̃ = obj
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,calculate_estimate(lshaped))
+        lshaped.solverdata.Q̃ = Q
         lshaped.solverdata.exact_steps += 1
         lshaped.solverdata.σ *= 4
         update_objective!(lshaped)
-    elseif obj + lshaped.τ*(1+abs(obj)) <= lshaped.γ*lshaped.solverdata.Q̃ + (1-lshaped.γ)*θ
+    elseif Q + lshaped.τ*(1+abs(Q)) <= lshaped.γ*Q̃ + (1-lshaped.γ)*θ
         println("Approximate serious step")
         lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
         push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
-        lshaped.solverdata.Q̃ = obj
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,calculate_estimate(lshaped))
+        lshaped.solverdata.Q̃ = Q
         lshaped.solverdata.approximate_steps += 1
     else
         println("Null step")
@@ -194,6 +196,9 @@ end
         lshaped.solverdata.σ *= 0.9
         update_objective!(lshaped)
     end
+    push!(lshaped.Q_history,Q)
+    push!(lshaped.θ_history,θ)
+    nothing
 end
 
 @implement_traitfn IsRegularized function update_objective!(lshaped::AbstractLShapedSolver)

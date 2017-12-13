@@ -1,6 +1,7 @@
 @with_kw mutable struct TrustRegionSolverData{T <: Real}
-    obj::T = Inf
-    Q̃::T = Inf
+    Q::T = 1e10
+    Q̃::T = 1e10
+    θ::T = -1e10
     Δ::T = 1.0
     cΔ::Int = 0
     major_steps::Int = 0
@@ -47,6 +48,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
+        x₀_ = convert(AbstractVector{T},copy(ξ₀))
         ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(ξ₀_)
 
@@ -59,7 +61,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                TrustRegionSolverData{T}(),
                                msolver,
                                c_,
-                               convert(A,rand(length(ξ₀_))),
+                               x₀_,
                                convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
                                Vector{SparseHyperPlane{T}}(),
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
@@ -69,7 +71,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                ξ₀_,
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                convert(T,1e-4),
@@ -92,16 +94,14 @@ end
 function (lshaped::TrustRegionLShapedSolver)()
     println("Starting L-Shaped procedure with trust-region")
     println("======================")
-    lshaped.solverdata.Q̃ = calculateObjective(lshaped,lshaped.ξ)
+
     println("Main loop")
     println("======================")
 
     while true
         if isempty(lshaped.violating)
             # Resolve all subproblems at the current optimal solution
-            resolve_subproblems!(lshaped)
-            # Update objective
-            lshaped.solverdata.obj = calculate_objective_value(lshaped)
+            lshaped.solverdata.Q = resolve_subproblems!(lshaped)
             # Update the optimization vector
             take_step!(lshaped)
         else
@@ -119,7 +119,6 @@ function (lshaped::TrustRegionLShapedSolver)()
             #     L += 1
             # end
         end
-
         # Resolve master
         println("Solving master problem")
         lshaped.mastersolver(lshaped.x)
@@ -130,10 +129,13 @@ function (lshaped::TrustRegionLShapedSolver)()
         end
         # Update master solution
         update_solution!(lshaped)
+        lshaped.solverdata.θ = calculate_estimate(lshaped)
         # remove_inactive!(lshaped)
         # if length(lshaped.violating) <= lshaped.nscenarios
         #     queueViolated!(lshaped)
         # end
+        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
+        push!(lshaped.θ_history,lshaped.solverdata.θ)
 
         if check_optimality(lshaped)
             # Optimal
@@ -163,24 +165,21 @@ end
 end
 
 @implement_traitfn HasTrustRegion function take_step!(lshaped::AbstractLShapedSolver)
-    θ = sum(lshaped.θs)
-    Q = lshaped.solverdata.obj
+    Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
+    θ = lshaped.solverdata.θ
     if Q <= Q̃ - lshaped.γ*abs(Q̃-θ)
         println("Major step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,calculate_estimate(lshaped))
         enlarge_trustregion!(lshaped)
         lshaped.solverdata.major_steps += 1
     else
         println("Minor step")
         reduce_trustregion!(lshaped)
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,calculate_estimate(lshaped))
         lshaped.solverdata.minor_steps += 1
     end
+    nothing
 end
 
 @implement_traitfn HasTrustRegion function set_trustregion!(lshaped::AbstractLShapedSolver)
@@ -193,9 +192,9 @@ end
 end
 
 @implement_traitfn HasTrustRegion function enlarge_trustregion!(lshaped::AbstractLShapedSolver)
-    θ = sum(lshaped.θs)
-    Q = lshaped.solverdata.obj
+    Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
+    θ = lshaped.solverdata.θ
     if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= lshaped.τ
         # Enlarge the trust-region radius
         lshaped.solverdata.Δ = min(lshaped.Δ̅,2*lshaped.solverdata.Δ)
@@ -208,9 +207,9 @@ end
 end
 
 @implement_traitfn HasTrustRegion function reduce_trustregion!(lshaped::AbstractLShapedSolver)
-    θ = sum(lshaped.θs)
-    Q = lshaped.solverdata.obj
+    Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
+    θ = lshaped.solverdata.θ
     ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
     if ρ > 0
         lshaped.solverdata.cΔ += 1

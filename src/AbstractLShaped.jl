@@ -86,6 +86,9 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
         end
         addcut!(lshaped,cut)
     end
+
+    # Return current objective value
+    return calculate_objective_value(lshaped)
 end
 
 # Cut functions #
@@ -104,8 +107,8 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q
 
     lshaped.subobjectives[cut.id] = Q
 
-    println("θ",cut.id,": ", θ)
-    println("Q",cut.id,": ", Q)
+    #println("θ",cut.id,": ", θ)
+    #println("Q",cut.id,": ", Q)
 
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem
@@ -113,7 +116,6 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q
         return false
     end
 
-    println("Added Optimality Cut")
     if hastrait(lshaped,UsesLocalization)
         push!(lshaped.committee,cut)
     end
@@ -213,17 +215,13 @@ end
 end
 
 @define_traitfn UsesLocalization function check_optimality(lshaped::AbstractLShapedSolver)
-    Q = sum(lshaped.subobjectives)
-    θ = sum(lshaped.θs)
+    Q = get_objective_value(lshaped)
+    θ = calculate_estimate(lshaped)
     return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
-    θ = calculate_estimate(lshaped)
     Q = lshaped.solverdata.Q̃
-    if θ > -Inf && Q < Inf && abs(θ - lshaped.solverdata.Q̃) <= lshaped.τ*(1+abs(lshaped.solverdata.Q̃))
-        return true
-    else
-        return false
-    end
+    θ = lshaped.solverdata.θ
+    return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
 end
 
 @define_traitfn UsesLocalization take_step!(lshaped::AbstractLShapedSolver)
