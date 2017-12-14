@@ -29,6 +29,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     # Trust region
     ξ::A
     Q_history::A
+    Q̃_history::A
     Δ_history::A
 
     # Cuts
@@ -71,12 +72,13 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                ξ₀_,
                                A(),
                                A(),
+                               A(),
                                A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                convert(T,1e-4),
                                convert(T,1e-6),
-                               convert(T,1000*max(1.0,2*norm(ξ₀_,Inf)))
+                               convert(T,max(1.0,0.05*norm(ξ₀_,Inf)))
                                )
         init!(lshaped,subsolver)
 
@@ -99,43 +101,7 @@ function (lshaped::TrustRegionLShapedSolver)()
     println("======================")
 
     while true
-        if isempty(lshaped.violating)
-            # Resolve all subproblems at the current optimal solution
-            lshaped.solverdata.Q = resolve_subproblems!(lshaped)
-            # Update the optimization vector
-            take_step!(lshaped)
-        else
-            # Add at most L violating constraints
-            # L = 0
-            # while !isempty(lshaped.violating) && L < lshaped.nscenarios
-            #     constraint = dequeue!(lshaped.violating)
-            #     if satisfied(lshaped,constraint)
-            #         push!(lshaped.inactive,constraint)
-            #         continue
-            #     end
-            #     println("Adding violated constraint to committee")
-            #     push!(lshaped.committee,constraint)
-            #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-            #     L += 1
-            # end
-        end
-        # Resolve master
-        println("Solving master problem")
-        lshaped.mastersolver(lshaped.x)
-        if status(lshaped.mastersolver) == :Infeasible
-            println("Master is infeasible, aborting procedure.")
-            println("======================")
-            return
-        end
-        # Update master solution
-        update_solution!(lshaped)
-        lshaped.solverdata.θ = calculate_estimate(lshaped)
-        # remove_inactive!(lshaped)
-        # if length(lshaped.violating) <= lshaped.nscenarios
-        #     queueViolated!(lshaped)
-        # end
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,lshaped.solverdata.θ)
+        iterate!(lshaped)
 
         if check_optimality(lshaped)
             # Optimal
@@ -148,6 +114,48 @@ function (lshaped::TrustRegionLShapedSolver)()
     end
 end
 
+function iterate!(lshaped::TrustRegionLShapedSolver)
+    if isempty(lshaped.violating)
+        # Resolve all subproblems at the current optimal solution
+        lshaped.solverdata.Q = resolve_subproblems!(lshaped)
+        # Update the optimization vector
+        take_step!(lshaped)
+    else
+        # Add at most L violating constraints
+        # L = 0
+        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
+        #     constraint = dequeue!(lshaped.violating)
+        #     if satisfied(lshaped,constraint)
+        #         push!(lshaped.inactive,constraint)
+        #         continue
+        #     end
+        #     println("Adding violated constraint to committee")
+        #     push!(lshaped.committee,constraint)
+        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
+        #     L += 1
+        # end
+    end
+    # Resolve master
+    println("Solving master problem")
+    lshaped.mastersolver(lshaped.x)
+    if status(lshaped.mastersolver) == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
+    end
+    # Update master solution
+    update_solution!(lshaped)
+    lshaped.solverdata.θ = calculate_estimate(lshaped)
+    # remove_inactive!(lshaped)
+    # if length(lshaped.violating) <= lshaped.nscenarios
+    #     queueViolated!(lshaped)
+    # end
+    push!(lshaped.Q_history,lshaped.solverdata.Q)
+    push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+    push!(lshaped.θ_history,lshaped.solverdata.θ)
+    nothing
+end
+
 ## Trait functions
 # ------------------------------------------------------------
 @define_traitfn UsesLocalization set_trustregion!(lshaped::AbstractLShapedSolver)
@@ -155,7 +163,7 @@ end
 @define_traitfn UsesLocalization reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn HasTrustRegion function init_solver!(lshaped::AbstractLShapedSolver)
-    lshaped.solverdata.Δ = max(1.0,0.2*norm(lshaped.ξ,Inf))
+    lshaped.solverdata.Δ = max(1.0,0.01*norm(lshaped.ξ,Inf))
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
 
     lshaped.solverdata.major_steps = 0
@@ -170,6 +178,7 @@ end
     θ = lshaped.solverdata.θ
     if Q <= Q̃ - lshaped.γ*abs(Q̃-θ)
         println("Major step")
+        lshaped.solverdata.cΔ = 0
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         enlarge_trustregion!(lshaped)
@@ -211,15 +220,18 @@ end
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
     ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
+    @show ρ
     if ρ > 0
         lshaped.solverdata.cΔ += 1
-        return false
-    elseif ρ > 3 || (lshaped.solverdata.cΔ >= 3 && 1 < ρ <= 3)
+    end
+    if ρ > 3 || (lshaped.solverdata.cΔ >= 3 && 1 < ρ <= 3)
         # Reduce the trust-region radius
         lshaped.solverdata.cΔ = 0
         lshaped.solverdata.Δ = (1/min(ρ,4))*lshaped.solverdata.Δ
         push!(lshaped.Δ_history,lshaped.solverdata.Δ)
         set_trustregion!(lshaped)
         return true
+    else
+        return false
     end
 end
