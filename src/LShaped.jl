@@ -4,8 +4,6 @@ using TraitDispatch
 using Parameters
 using JuMP
 using StructJuMP
-using Clp
-using Gurobi
 using MathProgBase
 
 importall MathProgBase.SolverInterface

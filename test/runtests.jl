@@ -3,6 +3,7 @@ using Base.Test
 using JuMP
 using StructJuMP
 using Clp
+using Gurobi
 
 function simplemodel()
     p = [0.4,0.6]
@@ -50,7 +51,7 @@ end
 
     ls = LShapedSolver(m,solver,solver)
     ls()
-    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
@@ -61,7 +62,7 @@ end
 
     ls = RegularizedLShapedSolver(m,solver,solver)
     ls()
-    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
@@ -72,6 +73,6 @@ end
 
     ls = TrustRegionLShapedSolver(m,[40,20.],solver,solver)
     ls()
-    @test norm(get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
