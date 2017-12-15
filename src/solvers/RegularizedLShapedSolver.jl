@@ -2,7 +2,6 @@
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
-    Δ̅::T = 1.0
     σ::T = 1.0
     exact_steps::Int = 0
     approximate_steps::Int = 0
@@ -29,8 +28,10 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 
     # Regularizer
     ξ::A
+    Q̃_history::A
     Q_history::A
-    Δ̅_history::A
+    σ_history::A
+    step_hist::Vector{Int}
 
     # Cuts
     θs::A
@@ -72,10 +73,12 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                ξ₀_,
                                A(),
                                A(),
+                               A(),
+                               Vector{Int}(),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               convert(T,1.0),
+                               convert(T,5.0),
                                convert(T,0.9),
                                convert(T,1e-6)
                                )
@@ -100,49 +103,10 @@ function (lshaped::RegularizedLShapedSolver)()
     println("======================")
 
     while true
-        if isempty(lshaped.violating)
-            # Resolve all subproblems at the current optimal solution
-            lshaped.solverdata.Q = resolve_subproblems!(lshaped)
-            # Update the optimization vector
-            take_step!(lshaped)
-        else
-            # Add at most L violating constraints
-            L = 0
-            while !isempty(lshaped.violating) && L < lshaped.nscenarios
-                constraint = dequeue!(lshaped.violating)
-                if satisfied(lshaped,constraint)
-                    push!(lshaped.inactive,constraint)
-                    continue
-                end
-                println("Adding violated constraint to committee")
-                push!(lshaped.committee,constraint)
-                addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-                L += 1
-            end
-        end
-
-        # Resolve master
-        println("Solving master problem")
-        lshaped.mastersolver(lshaped.x)
-        if status(lshaped.mastersolver) == :Infeasible
-            println("Master is infeasible, aborting procedure.")
-            println("======================")
-            return
-        end
-        # Update master solution
-        update_solution!(lshaped)
-        lshaped.solverdata.θ = calculate_estimate(lshaped)
-        remove_inactive!(lshaped)
-        if length(lshaped.violating) <= lshaped.nscenarios
-            queueViolated!(lshaped)
-        end
-        push!(lshaped.Q_history,lshaped.solverdata.Q̃)
-        push!(lshaped.θ_history,lshaped.solverdata.θ)
+        iterate!(lshaped)
 
         if check_optimality(lshaped)
-            if lshaped.solverdata.Δ̅ > lshaped.τ && norm(lshaped.x-lshaped.ξ) - lshaped.solverdata.Δ̅ <= lshaped.τ
-                lshaped.solverdata.σ *= 4
-            else
+            if lshaped.solverdata.Q̃ + lshaped.τ <= -1.2014137491535408e7
                 # Optimal
                 update_structuredmodel!(lshaped)
                 println("Optimal!")
@@ -154,14 +118,56 @@ function (lshaped::RegularizedLShapedSolver)()
     end
 end
 
+function iterate!(lshaped::RegularizedLShapedSolver)
+    if isempty(lshaped.violating)
+        # Resolve all subproblems at the current optimal solution
+        lshaped.solverdata.Q = resolve_subproblems!(lshaped)
+        # Update the optimization vector
+        take_step!(lshaped)
+    else
+        # # Add at most L violating constraints
+        # L = 0
+        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
+        #     constraint = dequeue!(lshaped.violating)
+        #     if satisfied(lshaped,constraint)
+        #         push!(lshaped.inactive,constraint)
+        #         continue
+        #     end
+        #     println("Adding violated constraint to committee")
+        #     push!(lshaped.committee,constraint)
+        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
+        #     L += 1
+        # end
+    end
+
+    # Resolve master
+    println("Solving master problem")
+    lshaped.mastersolver(lshaped.x)
+    if status(lshaped.mastersolver) == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
+    end
+    # Update master solution
+    update_solution!(lshaped)
+    lshaped.solverdata.θ = calculate_estimate(lshaped)
+    # remove_inactive!(lshaped)
+    # if length(lshaped.violating) <= lshaped.nscenarios
+    #     queueViolated!(lshaped)
+    # end
+    push!(lshaped.Q_history,lshaped.solverdata.Q)
+    push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+    push!(lshaped.θ_history,lshaped.solverdata.θ)
+    push!(lshaped.σ_history,lshaped.solverdata.σ)
+    nothing
+end
+
 
 ## Trait functions
 # ------------------------------------------------------------
-@define_traitfn UsesLocalization update_objective!(lshaped::AbstractLShapedSolver)
+@define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn IsRegularized function init_solver!(lshaped::AbstractLShapedSolver)
-    lshaped.solverdata.Δ̅ = max(1.0,0.2*norm(lshaped.ξ,Inf))
-    push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
     lshaped.solverdata.σ = lshaped.σ
     lshaped.solverdata.exact_steps = 0
     lshaped.solverdata.approximate_steps = 0
@@ -171,33 +177,30 @@ end
 end
 
 @implement_traitfn IsRegularized function take_step!(lshaped::AbstractLShapedSolver)
-    Q = calculate_objective_value(lshaped)
+    Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
-    θ = calculate_estimate(lshaped)
+    θ = lshaped.solverdata.θ
     if abs(θ-Q) <= lshaped.τ*(1+abs(θ))
         println("Exact serious step")
-        lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         lshaped.solverdata.exact_steps += 1
         lshaped.solverdata.σ *= 4
         update_objective!(lshaped)
+        push!(lshaped.step_hist,3)
     elseif Q + lshaped.τ*(1+abs(Q)) <= lshaped.γ*Q̃ + (1-lshaped.γ)*θ
         println("Approximate serious step")
-        lshaped.solverdata.Δ̅ = norm(lshaped.x-lshaped.ξ,Inf)
-        push!(lshaped.Δ̅_history,lshaped.solverdata.Δ̅)
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         lshaped.solverdata.approximate_steps += 1
+        push!(lshaped.step_hist,2)
     else
         println("Null step")
         lshaped.solverdata.null_steps += 1
         lshaped.solverdata.σ *= 0.9
         update_objective!(lshaped)
+        push!(lshaped.step_hist,1)
     end
-    push!(lshaped.Q_history,Q)
-    push!(lshaped.θ_history,θ)
     nothing
 end
 

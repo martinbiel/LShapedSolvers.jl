@@ -158,9 +158,9 @@ end
 
 ## Trait functions
 # ------------------------------------------------------------
-@define_traitfn UsesLocalization set_trustregion!(lshaped::AbstractLShapedSolver)
-@define_traitfn UsesLocalization enlarge_trustregion!(lshaped::AbstractLShapedSolver)
-@define_traitfn UsesLocalization reduce_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn HasTrustRegion set_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn HasTrustRegion enlarge_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn HasTrustRegion reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn HasTrustRegion function init_solver!(lshaped::AbstractLShapedSolver)
     lshaped.solverdata.Δ = max(1.0,0.01*norm(lshaped.ξ,Inf))
