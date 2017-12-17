@@ -87,7 +87,7 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 end
 TrustRegionLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = TrustRegionLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
 
-@implement_trait TrustRegionLShapedSolver UsesLocalization HasTrustRegion
+@implement_trait TrustRegionLShapedSolver HasTrustRegion
 
 function Base.show(io::IO, lshaped::TrustRegionLShapedSolver)
     print(io,"TrustRegionLShapedSolver")
@@ -162,7 +162,7 @@ end
 @define_traitfn HasTrustRegion enlarge_trustregion!(lshaped::AbstractLShapedSolver)
 @define_traitfn HasTrustRegion reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
-@implement_traitfn HasTrustRegion function init_solver!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     lshaped.solverdata.Δ = max(1.0,0.01*norm(lshaped.ξ,Inf))
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
 
@@ -172,7 +172,7 @@ end
     set_trustregion!(lshaped)
 end
 
-@implement_traitfn HasTrustRegion function take_step!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
@@ -191,7 +191,7 @@ end
     nothing
 end
 
-@implement_traitfn HasTrustRegion function set_trustregion!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function set_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     l = max.(lshaped.structuredmodel.colLower, lshaped.ξ-lshaped.solverdata.Δ)
     append!(l,fill(-Inf,lshaped.nscenarios))
     u = min.(lshaped.structuredmodel.colUpper, lshaped.ξ+lshaped.solverdata.Δ)
@@ -200,7 +200,7 @@ end
     setvarUB!(lshaped.mastersolver.lqmodel,u)
 end
 
-@implement_traitfn HasTrustRegion function enlarge_trustregion!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
@@ -215,7 +215,7 @@ end
     end
 end
 
-@implement_traitfn HasTrustRegion function reduce_trustregion!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function reduce_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ

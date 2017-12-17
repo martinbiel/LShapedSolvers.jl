@@ -89,7 +89,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 end
 RegularizedLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = RegularizedLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
 
-@implement_trait RegularizedLShapedSolver UsesLocalization IsRegularized
+@implement_trait RegularizedLShapedSolver IsRegularized
 
 function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
     print(io,"RegularizedLShapedSolver")
@@ -167,7 +167,7 @@ end
 # ------------------------------------------------------------
 @define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
 
-@implement_traitfn IsRegularized function init_solver!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     lshaped.solverdata.σ = lshaped.σ
     lshaped.solverdata.exact_steps = 0
     lshaped.solverdata.approximate_steps = 0
@@ -176,7 +176,7 @@ end
     update_objective!(lshaped)
 end
 
-@implement_traitfn IsRegularized function take_step!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
@@ -204,7 +204,7 @@ end
     nothing
 end
 
-@implement_traitfn IsRegularized function update_objective!(lshaped::AbstractLShapedSolver)
+@implement_traitfn function update_objective!(lshaped::AbstractLShapedSolver,IsRegularized)
     # Linear regularizer penalty
     c = copy(lshaped.c)
     c -= (1/lshaped.solverdata.σ)*lshaped.ξ
