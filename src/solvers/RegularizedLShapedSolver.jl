@@ -80,7 +80,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(),
                                convert(T,5.0),
                                convert(T,0.9),
-                               convert(T,1e-6)
+                               convert(T,1e-7)
                                )
         init!(lshaped,subsolver)
 
@@ -160,64 +160,4 @@ function iterate!(lshaped::RegularizedLShapedSolver)
     push!(lshaped.θ_history,lshaped.solverdata.θ)
     push!(lshaped.σ_history,lshaped.solverdata.σ)
     nothing
-end
-
-
-## Trait functions
-# ------------------------------------------------------------
-@define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
-
-@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
-    lshaped.solverdata.σ = lshaped.σ
-    lshaped.solverdata.exact_steps = 0
-    lshaped.solverdata.approximate_steps = 0
-    lshaped.solverdata.null_steps = 0
-
-    update_objective!(lshaped)
-end
-
-@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
-    Q = lshaped.solverdata.Q
-    Q̃ = lshaped.solverdata.Q̃
-    θ = lshaped.solverdata.θ
-    if abs(θ-Q) <= lshaped.τ*(1+abs(θ))
-        println("Exact serious step")
-        lshaped.ξ[:] = lshaped.x[:]
-        lshaped.solverdata.Q̃ = Q
-        lshaped.solverdata.exact_steps += 1
-        lshaped.solverdata.σ *= 4
-        update_objective!(lshaped)
-        push!(lshaped.step_hist,3)
-    elseif Q + lshaped.τ*(1+abs(Q)) <= lshaped.γ*Q̃ + (1-lshaped.γ)*θ
-        println("Approximate serious step")
-        lshaped.ξ[:] = lshaped.x[:]
-        lshaped.solverdata.Q̃ = Q
-        lshaped.solverdata.approximate_steps += 1
-        push!(lshaped.step_hist,2)
-    else
-        println("Null step")
-        lshaped.solverdata.null_steps += 1
-        lshaped.solverdata.σ *= 0.9
-        update_objective!(lshaped)
-        push!(lshaped.step_hist,1)
-    end
-    nothing
-end
-
-@implement_traitfn function update_objective!(lshaped::AbstractLShapedSolver,IsRegularized)
-    # Linear regularizer penalty
-    c = copy(lshaped.c)
-    c -= (1/lshaped.solverdata.σ)*lshaped.ξ
-    append!(c,fill(1.0,lshaped.nscenarios))
-    setobj!(lshaped.mastersolver.lqmodel,c)
-
-    # Quadratic regularizer penalty
-    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = fill(1/lshaped.solverdata.σ,length(lshaped.ξ))
-    append!(qval,zeros(lshaped.nscenarios))
-    if applicable(setquadobj!,lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-        setquadobj!(lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-    else
-        error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
-    end
 end

@@ -5,6 +5,9 @@ using Parameters
 using JuMP
 using StructJuMP
 using MathProgBase
+using RecipesBase
+using TimerOutputs
+using Plots.font
 
 importall MathProgBase.SolverInterface
 
@@ -28,6 +31,8 @@ include("LPSolver.jl")
 include("subproblem.jl")
 include("hyperplane.jl")
 include("AbstractLShaped.jl")
+include("localization.jl")
+include("parallel.jl")
 include("solvers/LShapedSolver.jl")
 include("solvers/PLShapedSolver.jl")
 include("solvers/RegularizedLShapedSolver.jl")

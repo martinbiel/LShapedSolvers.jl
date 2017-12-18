@@ -54,7 +54,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
 end
 LShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = LShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
 
-function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function (lshaped::LShapedSolver)()
     println("Starting L-Shaped procedure")
     println("======================")
 
@@ -62,9 +62,7 @@ function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVect
     println("======================")
 
     while true
-        # Resolve all subproblems at the current optimal solution
-        Q = resolve_subproblems!(lshaped)
-        push!(lshaped.Q_history,Q)
+        iterate!(lshaped)
 
         if check_optimality(lshaped)
             # Optimal
@@ -74,17 +72,64 @@ function (lshaped::LShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVect
             println("======================")
             break
         end
-
-        # Resolve master
-        println("Solving master problem")
-        lshaped.mastersolver(lshaped.x)
-        if status(lshaped.mastersolver) == :Infeasible
-            println("Master is infeasible, aborting procedure.")
-            println("======================")
-            return
-        end
-        # Update master solution
-        update_solution!(lshaped)
-        push!(lshaped.θ_history,calculate_estimate(lshaped))
     end
+end
+
+function (lshaped::LShapedSolver)(timer::TimerOutput)
+    println("Starting L-Shaped procedure")
+    println("======================")
+
+    println("Main loop")
+    println("======================")
+
+    while true
+        @timeit timer "Iterate" iterate!(lshaped,timer)
+
+        @timeit timer "Check optimality" if check_optimality(lshaped)
+            # Optimal
+            update_structuredmodel!(lshaped)
+            println("Optimal!")
+            println("Objective value: ", calculate_objective_value(lshaped))
+            println("======================")
+            break
+        end
+    end
+end
+
+function iterate!(lshaped::AbstractLShapedSolver)
+    # Resolve all subproblems at the current optimal solution
+    Q = resolve_subproblems!(lshaped)
+    push!(lshaped.Q_history,Q)
+
+    # Resolve master
+    println("Solving master problem")
+    lshaped.mastersolver(lshaped.x)
+    if status(lshaped.mastersolver) == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
+    end
+    # Update master solution
+    update_solution!(lshaped)
+    push!(lshaped.θ_history,calculate_estimate(lshaped))
+    nothing
+end
+
+function iterate!(lshaped::AbstractLShapedSolver,timer::TimerOutput)
+    # Resolve all subproblems at the current optimal solution
+    @timeit timer "Subproblems" Q = resolve_subproblems!(lshaped,timer)
+    push!(lshaped.Q_history,Q)
+
+    # Resolve master
+    println("Solving master problem")
+    @timeit timer "Master" lshaped.mastersolver(lshaped.x)
+    if status(lshaped.mastersolver) == :Infeasible
+        println("Master is infeasible, aborting procedure.")
+        println("======================")
+        return
+    end
+    # Update master solution
+    update_solution!(lshaped)
+    push!(lshaped.θ_history,calculate_estimate(lshaped))
+    nothing
 end

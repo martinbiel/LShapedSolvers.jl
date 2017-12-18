@@ -91,6 +91,26 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
     return calculate_objective_value(lshaped)
 end
 
+function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::TimerOutput) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    # Update subproblems
+    @timeit timer "update" update_subproblems!(lshaped.subproblems,lshaped.x)
+
+    # Solve sub problems
+    for subproblem ∈ lshaped.subproblems
+        println("Solving subproblem: ",subproblem.id)
+        @timeit timer "solve" cut::SparseHyperPlane{T} = subproblem()
+        if !bounded(cut)
+            println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
+            println("======================")
+            return
+        end
+        @timeit timer "create/add cut" addcut!(lshaped,cut)
+    end
+
+    # Return current objective value
+    return calculate_objective_value(lshaped)
+end
+
 # Cut functions #
 # ======================================================================== #
 active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.τ)
@@ -146,185 +166,66 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     push!(lshaped.cuts,cut)
     return true
 end
-# ======================================================================== #
 
-# Parallel routines #
-# ======================================================================== #
-SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
-MasterColumn{A} = RemoteChannel{Channel{A}}
-QCut{T} = Tuple{T,SparseHyperPlane{T}}
-CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
+@recipe f(lshaped::AbstractLShapedSolver) = lshaped,-1
+@recipe function f(lshaped::AbstractLShapedSolver, time::Real; showθ = false)
+    length(lshaped.Q_history) > 0 || error("No solution data. Has solver been run?")
+    showθ && (length(lshaped.θ_history) > 0 || error("No solution data. Has solver been run?"))
+    Qmin = showθ ? minimum(lshaped.θ_history) : minimum(lshaped.Q_history)
+    Qmax = maximum(lshaped.Q_history)
+    increment = std(lshaped.Q_history)
 
-function init_subworker!(subworker::SubWorker{T,A,S},
-                         parent::JuMPModel,
-                         submodels::Vector{JuMPModel},
-                         πs::A,
-                         x::A,
-                         subsolver::AbstractMathProgSolver,
-                         ids::Vector{Int}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems = Vector{SubProblem{T,A,S}}(length(ids))
-    for (i,id) = enumerate(ids)
-        y₀ = convert(A,rand(submodels[i].numCols))
-        subproblems[i] = SubProblem(submodels[i],parent,id,πs[i],x,y₀,subsolver)
-    end
-    put!(subworker,subproblems)
-end
-
-function work_on_subproblems!(subworker::SubWorker{T,A,S},
-                              cuts::CutQueue{T},
-                              rx::MasterColumn{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
-    while true
-        x::A = take!(rx)
-        if isempty(x)
-            println("Worker finished")
-            return
-        end
-        update_subproblems!(subproblems,x)
-        for subproblem in subproblems
-            println("Solving subproblem: ",subproblem.id)
-            cut = subproblem()
-            Q::T = cut(x)
-            put!(cuts,(Q,cut))
-            println("Subproblem: ",subproblem.id," solved")
-        end
-    end
-end
-
-function calculate_subobjective(subworker::SubWorker{T,A,S},
-                                x::A) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
-    if length(subproblems) > 0
-        return sum([subproblem.π*subproblem(x) for subproblem in subproblems])
+    linewidth --> 4
+    linecolor --> :black
+    tickfont := font(14,"sans-serif")
+    guidefont := font(16,"sans-serif")
+    titlefont := font(22,"sans-serif")
+    xlabel := time == -1 ? "Iteration" : "Time [s]"
+    ylabel := "Q"
+    ylims --> (Qmin-increment,Qmax+increment)
+    if time == -1
+        xlims --> (1,length(lshaped.Q_history)+1)
+        xticks --> 1:5:length(lshaped.Q_history)
     else
-        return zero(T)
+        xlims --> (0,time)
+        xticks --> linspace(0,time,ceil(Int,length(lshaped.Q_history)/5))
     end
-end
-
-# ======================================================================== #
-# TRAITS #
-# ======================================================================== #
-# UsesLocalization: Algorithm uses some localization method
-@define_trait UsesLocalization = begin
-    IsRegularized # Algorithm uses the regularized decomposition method of Ruszczyński
-    HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
-end
-
-@define_traitfn UsesLocalization init_solver!(lshaped::AbstractLShapedSolver) = begin
-    function init_solver!(lshaped::AbstractLShapedSolver,!UsesLocalization)
-        nothing
-    end
-end
-
-@define_traitfn UsesLocalization check_optimality(lshaped::AbstractLShapedSolver) = begin
-    function check_optimality(lshaped::AbstractLShapedSolver,!UsesLocalization)
-        Q = get_objective_value(lshaped)
-        θ = calculate_estimate(lshaped)
-        return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
-    end
-
-    function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
-        Q = lshaped.solverdata.Q̃
-        θ = lshaped.solverdata.θ
-        return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
-    end
-end
-
-@define_traitfn UsesLocalization take_step!(lshaped::AbstractLShapedSolver)
-
-@define_traitfn UsesLocalization remove_inactive!(lshaped::AbstractLShapedSolver) = begin
-    function remove_inactive!(lshaped::AbstractLShapedSolver,UsesLocalization)
-        inactive = find(c->!active(lshaped,c),lshaped.committee)
-        diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
-        if isempty(inactive) || diff <= 0
-            return false
+    yticks --> Qmin:increment:Qmax
+    xformatter := (d) -> @sprintf("%.1f",d)
+    yformatter := (d) -> begin
+        if abs(d) <= sqrt(eps())
+            "0.0"
+        elseif (log10(abs(d)) < -2.0 || log10(abs(d)) > 3.0)
+            @sprintf("%.4e",d)
+        elseif log10(abs(d)) > 2.0
+            @sprintf("%.1f",d)
+        else
+            @sprintf("%.2f",d)
         end
-        if diff <= length(inactive)
-            inactive = inactive[1:diff]
-        end
-        append!(lshaped.inactive,lshaped.committee[inactive])
-        deleteat!(lshaped.committee,inactive)
-        delconstrs!(lshaped.mastersolver.lqmodel,inactive)
-        return true
-    end
-end
-
-@define_traitfn UsesLocalization queueViolated!(lshaped::AbstractLShapedSolver) = begin
-    function queueViolated!(lshaped::AbstractLShapedSolver,UsesLocalization)
-        violating = find(c->violated(lshaped,c),lshaped.inactive)
-        if isempty(violating)
-            return false
-        end
-        gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
-        for (c,g) in zip(lshaped.inactive[violating],gaps)
-            enqueue!(lshaped.violating,c,g)
-        end
-        deleteat!(lshaped.inactive,violating)
-        return true
-    end
-end
-
-# ------------------------------------------------------------
-# IsParallel -> Algorithm is run in parallel
-# ------------------------------------------------------------
-@define_trait IsParallel
-
-@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
-        # Prepare the subproblems
-        m = lshaped.structuredmodel
-        π = getprobability(m)
-        for i = 1:lshaped.nscenarios
-            y₀ = convert(A,rand(getchildren(m)[i].numCols))
-            push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),y₀,subsolver))
-        end
-        lshaped
     end
 
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
-        # Partitioning
-        (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
-        # One extra to guarantee coverage
-        if extra > 0
-            jobLength += 1
+    @series begin
+        label --> "Q"
+        seriescolor --> :black
+        if time == -1
+            1:1:length(lshaped.Q_history),lshaped.Q_history
+        else
+            linspace(0,time,length(lshaped.Q_history)),lshaped.Q_history
         end
-        # Create subproblems on worker processes
-        m = lshaped.structuredmodel
-        start = 1
-        stop = jobLength
-        @sync for w in workers()
-            lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
-            lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{A}(10), w)
-            put!(lshaped.mastercolumns[w-1],lshaped.x)
-            submodels = [getchildren(m)[i] for i = start:stop]
-            πs = [getprobability(m)[i] for i = start:stop]
-            @spawnat w init_subworker!(lshaped.subworkers[w-1],
-                                       m,
-                                       submodels,
-                                       πs,
-                                       lshaped.x,
-                                       subsolver,
-                                       collect(start:stop))
-            if start > lshaped.nscenarios
-                continue
+    end
+
+    if showθ
+        @series begin
+            label --> "θ"
+            linestyle --> :dash
+            seriescolor --> :red
+            linecolor --> :red
+            linewidth --> 2
+            if time == -1
+                1:1:length(lshaped.θ_history),lshaped.θ_history
+            else
+                linspace(0,time,length(lshaped.θ_history)),lshaped.θ_history
             end
-            start += jobLength
-            stop += jobLength
-            stop = min(stop,lshaped.nscenarios)
         end
-        lshaped
     end
 end
-
-@define_traitfn IsParallel calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector) = begin
-    function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector,NullTrait)
-        return lshaped.c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
-    end
-
-    function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector,IsParallel)
-        c = lshaped.structuredmodel.obj.aff.coeffs
-        objidx = [v.col for v in lshaped.structuredmodel.obj.aff.vars]
-        return c⋅x[objidx] + sum(fetch.([@spawnat w calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
-    end
-end
-# ======================================================================== #
