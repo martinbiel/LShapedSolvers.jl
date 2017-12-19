@@ -1,5 +1,16 @@
+@with_kw mutable struct LShapedSolverData{T <: Real}
+    Q::T = 1e10
+    θ::T = -1e10
+    iterations::Int = 0
+end
+
+@with_kw struct LShapedSolverParameters{T <: Real}
+    τ::T = 1e-6
+end
+
 struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMPModel
+    solverdata::LShapedSolverData{T}
 
     # Master
     mastersolver::M
@@ -18,9 +29,9 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
     θ_history::A
 
     # Params
-    τ::T
+    parameters::LShapedSolverParameters{T}
 
-    function (::Type{LShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+    function (::Type{LShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
         !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
@@ -36,6 +47,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
         n = num_scenarios(model)
 
         lshaped = new{T,A,M,S}(model,
+                               LShapedSolverData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -46,13 +58,13 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
                                A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               convert(T,1e-6))
+                               LShapedSolverParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-LShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = LShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
+LShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::LShapedSolver)()
     println("Starting L-Shaped procedure")
@@ -111,7 +123,10 @@ function iterate!(lshaped::AbstractLShapedSolver)
     end
     # Update master solution
     update_solution!(lshaped)
-    push!(lshaped.θ_history,calculate_estimate(lshaped))
+    θ = calculate_estimate(lshaped)
+    push!(lshaped.θ_history,θ)
+    @pack lshaped.solverdata = Q,θ
+    lshaped.solverdata.iterations += 1
     nothing
 end
 

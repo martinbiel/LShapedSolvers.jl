@@ -8,6 +8,13 @@
     minor_steps::Int = 0
 end
 
+@with_kw struct TrustRegionSolverParameters{T <: Real}
+    τ::T = 1e-6
+    γ::T = 1e-4
+    Δ = 1.0
+    Δ̅::T = 1.0
+end
+
 struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMPModel
     solverdata::TrustRegionSolverData{T}
@@ -38,11 +45,11 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     θ_history::A
 
     # Params
-    γ::T
-    τ::T
-    Δ̅::T
+    parameters::TrustRegionSolverParameters{T}
 
-    function (::Type{TrustRegionLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+    @implement_trait TrustRegionLShapedSolver HasTrustRegion
+
+    function (::Type{TrustRegionLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
@@ -76,22 +83,13 @@ struct TrustRegionLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               convert(T,1e-4),
-                               convert(T,1e-6),
-                               convert(T,max(1.0,0.05*norm(ξ₀_,Inf)))
-                               )
+                               TrustRegionSolverParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-TrustRegionLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = TrustRegionLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
-
-@implement_trait TrustRegionLShapedSolver HasTrustRegion
-
-function Base.show(io::IO, lshaped::TrustRegionLShapedSolver)
-    print(io,"TrustRegionLShapedSolver")
-end
+TrustRegionLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = TrustRegionLShapedSolver(model,rand(model.numCols),mastersolver,subsolver;kw...)
 
 function (lshaped::TrustRegionLShapedSolver)()
     println("Starting L-Shaped procedure with trust-region")

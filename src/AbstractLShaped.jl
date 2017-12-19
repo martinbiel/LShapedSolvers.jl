@@ -2,14 +2,6 @@ abstract type AbstractLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolve
 
 nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
-function Base.show(io::IO, lshaped::AbstractLShapedSolver)
-    print(io,"LShapedSolver")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
-    show(io,lshaped)
-end
-
 # Initialization #
 # ======================================================================== #
 function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
@@ -123,7 +115,7 @@ gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lsh
 
 function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q::Real)
     θ = lshaped.θs[cut.id]
-    τ = lshaped.τ
+    @unpack τ = lshaped.parameters
 
     lshaped.subobjectives[cut.id] = Q
 
@@ -165,6 +157,18 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
+end
+
+function Base.show(io::IO, lshaped::AbstractLShapedSolver)
+    println(io,typeof(lshaped).name.name)
+    println(io,"State:")
+    show(io,lshaped.solverdata)
+    println(io,"Parameters:")
+    show(io,lshaped.parameters)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
+    show(io,lshaped)
 end
 
 @recipe f(lshaped::AbstractLShapedSolver) = lshaped,-1

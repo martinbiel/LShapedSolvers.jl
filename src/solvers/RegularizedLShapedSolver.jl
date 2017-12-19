@@ -8,6 +8,14 @@
     null_steps::Int = 0
 end
 
+@with_kw struct RegularizedSolverParameters{T <: Real}
+    τ::T = 1e-6
+    γ::T = 0.9
+    σ::T = 1.0
+    σ̅::T = 4.0
+    σ̲::T = 0.5
+end
+
 struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMPModel
     solverdata::RegularizedSolverData{T}
@@ -39,11 +47,11 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     θ_history::A
 
     # Params
-    σ::T
-    γ::T
-    τ::T
+    parameters::RegularizedSolverParameters{T}
 
-    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+    @implement_trait RegularizedLShapedSolver IsRegularized
+
+    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
 
@@ -78,22 +86,13 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               convert(T,5.0),
-                               convert(T,0.9),
-                               convert(T,1e-7)
-                               )
+                               RegularizedSolverParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-RegularizedLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = RegularizedLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
-
-@implement_trait RegularizedLShapedSolver IsRegularized
-
-function Base.show(io::IO, lshaped::RegularizedLShapedSolver)
-    print(io,"RegularizedLShapedSolver")
-end
+RegularizedLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = RegularizedLShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::RegularizedLShapedSolver)()
     println("Starting L-Shaped procedure with regularized decomposition")
@@ -106,7 +105,7 @@ function (lshaped::RegularizedLShapedSolver)()
         iterate!(lshaped)
 
         if check_optimality(lshaped)
-            if lshaped.solverdata.Q̃ + lshaped.τ <= -1.2014137491535408e7
+            if lshaped.solverdata.Q̃ + lshaped.parameters.τ <= -1.2014137491535408e7
                 # Optimal
                 update_structuredmodel!(lshaped)
                 println("Optimal!")

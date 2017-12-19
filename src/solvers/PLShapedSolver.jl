@@ -1,5 +1,16 @@
+@with_kw mutable struct PLShapedSolverData{T <: Real}
+    Q::T = 1e10
+    θ::T = -1e10
+    iterations::Int = 0
+end
+
+@with_kw struct PLShapedSolverParameters{T <: Real}
+    τ::T = 1e-6
+end
+
 struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMPModel
+    solverdata::PLShapedSolverData{T}
 
     # Master
     mastersolver::M
@@ -22,9 +33,11 @@ struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
     cuts::Vector{SparseHyperPlane{T}}
 
     # Params
-    τ::T
+    parameters::PLShapedSolverParameters{T}
 
-    function (::Type{PLShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver)
+    @implement_trait PLShapedSolver IsParallel
+
+    function (::Type{PLShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() == 1
             warn("There are no worker processes, defaulting to serial version of algorithm")
             return LShapedSolver(model,x₀,mastersolver,subsolver)
@@ -44,6 +57,7 @@ struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
         n = num_scenarios(model)
 
         lshaped = new{T,A,M,S}(model,
+                               PLShapedSolverData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -56,19 +70,13 @@ struct PLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
-                               convert(T,1e-6))
+                               PLShapedSolverParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-PLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver) = PLShapedSolver(model,rand(model.numCols),mastersolver,subsolver)
-
-@implement_trait PLShapedSolver IsParallel
-
-function Base.show(io::IO, lshaped::PLShapedSolver)
-    print(io,"PLShapedSolver")
-end
+PLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = PLShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::PLShapedSolver{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     println("Starting parallel L-Shaped procedure\n")

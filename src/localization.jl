@@ -16,15 +16,17 @@ end
 
 @define_traitfn UsesLocalization check_optimality(lshaped::AbstractLShapedSolver) = begin
     function check_optimality(lshaped::AbstractLShapedSolver,!UsesLocalization)
+        @unpack τ = lshaped.parameters
         Q = get_objective_value(lshaped)
         θ = calculate_estimate(lshaped)
-        return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(θ))
     end
 
     function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
+        @unpack τ = lshaped.parameters
         Q = lshaped.solverdata.Q̃
         θ = lshaped.solverdata.θ
-        return θ > -Inf && abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(θ))
     end
 end
 
@@ -65,10 +67,7 @@ end
 @define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
-    lshaped.solverdata.σ = lshaped.σ
-    lshaped.solverdata.exact_steps = 0
-    lshaped.solverdata.approximate_steps = 0
-    lshaped.solverdata.null_steps = 0
+    lshaped.solverdata.σ = lshaped.parameters.σ
 
     update_objective!(lshaped)
 end
@@ -77,15 +76,16 @@ end
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
-    if abs(θ-Q) <= lshaped.τ*(1+abs(θ))
+    @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
+    if abs(θ-Q) <= τ*(1+abs(θ))
         println("Exact serious step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         lshaped.solverdata.exact_steps += 1
-        lshaped.solverdata.σ *= 2
+        lshaped.solverdata.σ *= σ̅
         update_objective!(lshaped)
         push!(lshaped.step_hist,3)
-    elseif Q + lshaped.τ*(1+abs(Q)) <= lshaped.γ*Q̃ + (1-lshaped.γ)*θ
+    elseif Q + τ*(1+abs(Q)) <= γ*Q̃ + (1-γ)*θ
         println("Approximate serious step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
@@ -94,7 +94,7 @@ end
     else
         println("Null step")
         lshaped.solverdata.null_steps += 1
-        lshaped.solverdata.σ *= 0.5
+        lshaped.solverdata.σ *= σ̲
         update_objective!(lshaped)
         push!(lshaped.step_hist,1)
     end
@@ -126,11 +126,8 @@ end
 @define_traitfn HasTrustRegion reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasTrustRegion)
-    lshaped.solverdata.Δ = max(1.0,0.01*norm(lshaped.ξ,Inf))
+    lshaped.solverdata.Δ = lshaped.parameters.Δ
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
-
-    lshaped.solverdata.major_steps = 0
-    lshaped.solverdata.minor_steps = 0
 
     set_trustregion!(lshaped)
 end
@@ -139,7 +136,8 @@ end
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
-    if Q <= Q̃ - lshaped.γ*abs(Q̃-θ)
+    @unpack γ = lshaped.parameters
+    if Q <= Q̃ - γ*abs(Q̃-θ)
         println("Major step")
         lshaped.solverdata.cΔ = 0
         lshaped.ξ[:] = lshaped.x[:]
@@ -167,9 +165,10 @@ end
     Q = lshaped.solverdata.Q
     Q̃ = lshaped.solverdata.Q̃
     θ = lshaped.solverdata.θ
-    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= lshaped.τ
+    @unpack τ,Δ̅ = lshaped.parameters
+    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
         # Enlarge the trust-region radius
-        lshaped.solverdata.Δ = min(lshaped.Δ̅,2*lshaped.solverdata.Δ)
+        lshaped.solverdata.Δ = min(Δ̅,2*lshaped.solverdata.Δ)
         push!(lshaped.Δ_history,lshaped.solverdata.Δ)
         set_trustregion!(lshaped)
         return true
