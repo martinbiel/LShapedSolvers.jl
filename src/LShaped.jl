@@ -18,6 +18,7 @@ export
     LShapedSolver,
     RegularizedLShapedSolver,
     TrustRegionLShapedSolver,
+    LevelSetLShapedSolver,
     PLShapedSolver,
     LPSolver,
     get_solution,
@@ -37,5 +38,6 @@ include("solvers/LShapedSolver.jl")
 include("solvers/PLShapedSolver.jl")
 include("solvers/RegularizedLShapedSolver.jl")
 include("solvers/TrustRegionLShapedSolver.jl")
+include("solvers/LevelSetLShapedSolver.jl")
 
 end # module

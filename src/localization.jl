@@ -2,8 +2,9 @@
 # UsesLocalization: Algorithm uses some localization method
 # ------------------------------------------------------------
 @define_trait UsesLocalization = begin
-    IsRegularized # Algorithm uses the regularized decomposition method of Ruszczyński
+    IsRegularized  # Algorithm uses the regularized decomposition method of Ruszczyński
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
+    HasLevels      # Algorithm uses the level set method of Lemarcheral
 end
 
 @define_traitfn UsesLocalization init_solver!(lshaped::AbstractLShapedSolver) = begin
@@ -24,9 +25,19 @@ end
 
     function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
         @unpack τ = lshaped.parameters
-        Q = lshaped.solverdata.Q̃
-        θ = lshaped.solverdata.θ
+        @unpack Q,θ = lshaped.solverdata
         return θ > -Inf && abs(θ-Q) <= τ*(1+abs(θ))
+    end
+end
+
+@define_traitfn UsesLocalization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = begin
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},!UsesLocalization)
+        nothing
+    end
+
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},UsesLocalization)
+        push!(lshaped.committee,cut)
+        nothing
     end
 end
 
@@ -73,9 +84,7 @@ end
 end
 
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
-    Q = lshaped.solverdata.Q
-    Q̃ = lshaped.solverdata.Q̃
-    θ = lshaped.solverdata.θ
+    @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
     if abs(θ-Q) <= τ*(1+abs(θ))
         println("Exact serious step")
@@ -133,9 +142,7 @@ end
 end
 
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,HasTrustRegion)
-    Q = lshaped.solverdata.Q
-    Q̃ = lshaped.solverdata.Q̃
-    θ = lshaped.solverdata.θ
+    @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack γ = lshaped.parameters
     if Q <= Q̃ - γ*abs(Q̃-θ)
         println("Major step")
@@ -162,9 +169,7 @@ end
 end
 
 @implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
-    Q = lshaped.solverdata.Q
-    Q̃ = lshaped.solverdata.Q̃
-    θ = lshaped.solverdata.θ
+    @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
     if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
         # Enlarge the trust-region radius
@@ -178,9 +183,7 @@ end
 end
 
 @implement_traitfn function reduce_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
-    Q = lshaped.solverdata.Q
-    Q̃ = lshaped.solverdata.Q̃
-    θ = lshaped.solverdata.θ
+    @unpack Q,Q̃,θ = lshaped.solverdata
     ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
     @show ρ
     if ρ > 0
@@ -196,4 +199,70 @@ end
     else
         return false
     end
+end
+
+# Has Levels
+# ------------------------------------------------------------
+@define_traitfn HasLevels project!(lshaped::AbstractLShapedSolver)
+
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasLevels)
+    # θs
+    for i = 1:lshaped.nscenarios
+        addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
+    end
+    c = sparse(getobj(lshaped.projectionsolver.lqmodel))
+    addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,Inf)
+    lshaped.solverdata.i = numlinconstr(lshaped.projectionsolver.lqmodel)
+end
+
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,HasLevels)
+    @unpack Q,Q̃ = lshaped.solverdata
+    @unpack τ = lshaped.parameters
+    if Q + τ*(1+abs(Q)) <= Q̃
+        lshaped.solverdata.Q̃ = Q
+    end
+    nothing
+end
+
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},HasLevels)
+    addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
+end
+
+@implement_traitfn function project!(lshaped::AbstractLShapedSolver,HasLevels)
+    @unpack θ,Q̃,i = lshaped.solverdata
+    @unpack λ = lshaped.parameters
+
+    lshaped.projectionsolver.lqmodel = copy(lshaped.mastersolver.lqmodel)
+
+    # Update level
+    c = sparse(getobj(lshaped.projectionsolver.lqmodel))
+    L = (1-λ)*θ + λ*Q̃
+    addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
+
+    # Update regularizer
+    q = -copy(lshaped.ξ)
+    append!(q,zeros(lshaped.nscenarios))
+    setobj!(lshaped.projectionsolver.lqmodel,q)
+
+    # Quadratic regularizer penalty
+    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
+    qval = ones(length(lshaped.ξ))
+    append!(qval,zeros(lshaped.nscenarios))
+    if applicable(setquadobj!,lshaped.projectionsolver.lqmodel,qidx,qidx,qval)
+        setquadobj!(lshaped.projectionsolver.lqmodel,qidx,qidx,qval)
+    else
+        error("The level set algorithm requires a solver that handles quadratic objectives")
+    end
+
+    lshaped.projectionsolver(lshaped.x)
+    if status(lshaped.projectionsolver) == :Infeasible
+        println("Projection problem is infeasible, aborting procedure.")
+        println("======================")
+        error("Projection problem is infeasible, aborting procedure.")
+    end
+
+    # Update master solution
+    ncols = lshaped.structuredmodel.numCols
+    x = getsolution(lshaped.projectionsolver)
+    lshaped.x[1:ncols] = x[1:ncols]
 end

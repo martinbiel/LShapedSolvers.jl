@@ -1,4 +1,4 @@
-struct LQSolver{M <: AbstractLinearQuadraticModel, S <: AbstractMathProgSolver}
+mutable struct LQSolver{M <: AbstractLinearQuadraticModel, S <: AbstractMathProgSolver}
     lqmodel::M
     optimsolver::S
 

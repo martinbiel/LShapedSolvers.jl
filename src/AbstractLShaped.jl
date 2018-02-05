@@ -124,13 +124,11 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q
 
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem
-        #println("Optimal with respect to subproblem ", cut.id)
+        # println("Optimal with respect to subproblem ", cut.id)
         return false
     end
 
-    if hastrait(lshaped,UsesLocalization)
-        push!(lshaped.committee,cut)
-    end
+    process_cut!(lshaped,cut)
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
