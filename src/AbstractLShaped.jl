@@ -29,7 +29,7 @@ function update_structuredmodel!(lshaped::AbstractLShapedSolver)
     lshaped.structuredmodel.objVal = lshaped.c⋅lshaped.x + sum(lshaped.subobjectives)
 
     for i in 1:lshaped.nscenarios
-        m = getchildren(lshaped.structuredmodel)[i]
+        m = subproblem(lshaped.structuredmodel,i)
         m.colVal = copy(getsolution(lshaped.subproblems[i].solver))
         m.objVal = getobjval(lshaped.subproblems[i].solver)
     end
@@ -157,7 +157,7 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     return true
 end
 
-function Base.show(io::IO, lshaped::AbstractLShapedSolver)
+function show(io::IO, lshaped::AbstractLShapedSolver)
     println(io,typeof(lshaped).name.name)
     println(io,"State:")
     show(io,lshaped.solverdata)
@@ -165,7 +165,7 @@ function Base.show(io::IO, lshaped::AbstractLShapedSolver)
     show(io,lshaped.parameters)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
+function show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
     show(io,lshaped)
 end
 

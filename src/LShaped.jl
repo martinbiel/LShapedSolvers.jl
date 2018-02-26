@@ -3,12 +3,13 @@ module LShaped
 using TraitDispatch
 using Parameters
 using JuMP
-using StructJuMP
+using StochasticPrograms
 using MathProgBase
 using RecipesBase
 using TimerOutputs
 using Plots.font
 
+import Base.show
 importall MathProgBase.SolverInterface
 
 using Base.Order: Ordering, ReverseOrdering, Reverse

@@ -7,10 +7,9 @@
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         # Prepare the subproblems
         m = lshaped.structuredmodel
-        π = getprobability(m)
         for i = 1:lshaped.nscenarios
-            y₀ = convert(A,rand(getchildren(m)[i].numCols))
-            push!(lshaped.subproblems,SubProblem(getchildren(m)[i],m,i,π[i],copy(lshaped.x),y₀,subsolver))
+            y₀ = convert(A,rand(subproblem(m,i).numCols))
+            push!(lshaped.subproblems,SubProblem(subproblem(m,i),m,i,probability(m,i),copy(lshaped.x),y₀,subsolver))
         end
         lshaped
     end
@@ -30,8 +29,8 @@
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
             lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{A}(10), w)
             put!(lshaped.mastercolumns[w-1],lshaped.x)
-            submodels = [getchildren(m)[i] for i = start:stop]
-            πs = [getprobability(m)[i] for i = start:stop]
+            submodels = [subproblem(m,i) for i = start:stop]
+            πs = [probability(m,i) for i = start:stop]
             @spawnat w init_subworker!(lshaped.subworkers[w-1],
                                        m,
                                        submodels,

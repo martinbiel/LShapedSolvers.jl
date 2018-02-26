@@ -53,7 +53,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
 
     function (::Type{RegularizedLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
-        !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
+        !haskey(model.ext,:SP) && error("The provided model is not structured")
 
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
@@ -65,7 +65,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = num_scenarios(model)
+        n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
                                RegularizedSolverData{T}(),
