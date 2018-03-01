@@ -1,24 +1,23 @@
-@with_kw mutable struct RegularizedSolverData{T <: Real}
+@with_kw mutable struct TrustRegionData{T <: Real}
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
-    σ::T = 1.0
-    exact_steps::Int = 0
-    approximate_steps::Int = 0
-    null_steps::Int = 0
+    Δ::T = 1.0
+    cΔ::Int = 0
+    major_steps::Int = 0
+    minor_steps::Int = 0
 end
 
-@with_kw struct RegularizedSolverParameters{T <: Real}
+@with_kw struct TrustRegionParameters{T <: Real}
     τ::T = 1e-6
-    γ::T = 0.9
-    σ::T = 1.0
-    σ̅::T = 4.0
-    σ̲::T = 0.5
+    γ::T = 1e-4
+    Δ = 1.0
+    Δ̅::T = 1.0
 end
 
-struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
-    structuredmodel::JuMPModel
-    solverdata::RegularizedSolverData{T}
+struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+    structuredmodel::JuMP.Model
+    solverdata::TrustRegionData{T}
 
     # Master
     mastersolver::M
@@ -34,12 +33,11 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     subproblems::Vector{SubProblem{T,A,S}}
     subobjectives::A
 
-    # Regularizer
+    # Trust region
     ξ::A
-    Q̃_history::A
     Q_history::A
-    σ_history::A
-    step_hist::Vector{Int}
+    Q̃_history::A
+    Δ_history::A
 
     # Cuts
     θs::A
@@ -47,11 +45,11 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
     θ_history::A
 
     # Params
-    parameters::RegularizedSolverParameters{T}
+    parameters::TrustRegionParameters{T}
 
-    @implement_trait RegularizedLShapedSolver IsRegularized
+    @implement_trait TrustRegion HasTrustRegion
 
-    function (::Type{RegularizedLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{TrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
 
@@ -68,7 +66,7 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               RegularizedSolverData{T}(),
+                               TrustRegionData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -82,20 +80,19 @@ struct RegularizedLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S
                                A(),
                                A(),
                                A(),
-                               Vector{Int}(),
-                               A(fill(-Inf,n)),
+                               A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               RegularizedSolverParameters{T}(;kw...))
+                               TrustRegionParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-RegularizedLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = RegularizedLShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
+TrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = TrustRegion(model,rand(model.numCols),mastersolver,subsolver;kw...)
 
-function (lshaped::RegularizedLShapedSolver)()
-    println("Starting L-Shaped procedure with regularized decomposition")
+function (lshaped::TrustRegion)()
+    println("Starting L-Shaped procedure with trust-region")
     println("======================")
 
     println("Main loop")
@@ -115,14 +112,14 @@ function (lshaped::RegularizedLShapedSolver)()
     end
 end
 
-function iterate!(lshaped::RegularizedLShapedSolver)
+function iterate!(lshaped::TrustRegion)
     if isempty(lshaped.violating)
         # Resolve all subproblems at the current optimal solution
         lshaped.solverdata.Q = resolve_subproblems!(lshaped)
         # Update the optimization vector
         take_step!(lshaped)
     else
-        # # Add at most L violating constraints
+        # Add at most L violating constraints
         # L = 0
         # while !isempty(lshaped.violating) && L < lshaped.nscenarios
         #     constraint = dequeue!(lshaped.violating)
@@ -136,7 +133,6 @@ function iterate!(lshaped::RegularizedLShapedSolver)
         #     L += 1
         # end
     end
-
     # Resolve master
     println("Solving master problem")
     lshaped.mastersolver(lshaped.x)
@@ -155,6 +151,5 @@ function iterate!(lshaped::RegularizedLShapedSolver)
     push!(lshaped.Q_history,lshaped.solverdata.Q)
     push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
     push!(lshaped.θ_history,lshaped.solverdata.θ)
-    push!(lshaped.σ_history,lshaped.solverdata.σ)
     nothing
 end

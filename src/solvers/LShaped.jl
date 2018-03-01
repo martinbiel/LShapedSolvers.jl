@@ -1,16 +1,16 @@
-@with_kw mutable struct LShapedSolverData{T <: Real}
+@with_kw mutable struct LShapedData{T <: Real}
     Q::T = 1e10
     θ::T = -1e10
     iterations::Int = 0
 end
 
-@with_kw struct LShapedSolverParameters{T <: Real}
+@with_kw struct LShapedParameters{T <: Real}
     τ::T = 1e-6
 end
 
-struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
-    structuredmodel::JuMPModel
-    solverdata::LShapedSolverData{T}
+struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+    structuredmodel::JuMP.Model
+    solverdata::LShapedData{T}
 
     # Master
     mastersolver::M
@@ -29,9 +29,9 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
     θ_history::A
 
     # Params
-    parameters::LShapedSolverParameters{T}
+    parameters::LShapedParameters{T}
 
-    function (::Type{LShapedSolver})(model::JuMPModel,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
 
@@ -47,7 +47,7 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               LShapedSolverData{T}(),
+                               LShapedData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -58,15 +58,15 @@ struct LShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolve
                                A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               LShapedSolverParameters{T}(;kw...))
+                               LShapedParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-LShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LShaped(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::LShapedSolver)()
+function (lshaped::LShaped)()
     println("Starting L-Shaped procedure")
     println("======================")
 
@@ -87,7 +87,7 @@ function (lshaped::LShapedSolver)()
     end
 end
 
-function (lshaped::LShapedSolver)(timer::TimerOutput)
+function (lshaped::LShaped)(timer::TimerOutput)
     println("Starting L-Shaped procedure")
     println("======================")
 
@@ -108,7 +108,7 @@ function (lshaped::LShapedSolver)(timer::TimerOutput)
     end
 end
 
-function iterate!(lshaped::AbstractLShapedSolver)
+function iterate!(lshaped::LShaped)
     # Resolve all subproblems at the current optimal solution
     Q = resolve_subproblems!(lshaped)
     push!(lshaped.Q_history,Q)
@@ -130,7 +130,7 @@ function iterate!(lshaped::AbstractLShapedSolver)
     nothing
 end
 
-function iterate!(lshaped::AbstractLShapedSolver,timer::TimerOutput)
+function iterate!(lshaped::LShaped,timer::TimerOutput)
     # Resolve all subproblems at the current optimal solution
     @timeit timer "Subproblems" Q = resolve_subproblems!(lshaped,timer)
     push!(lshaped.Q_history,Q)

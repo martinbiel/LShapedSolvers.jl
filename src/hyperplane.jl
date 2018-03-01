@@ -127,7 +127,7 @@ function LinearConstraint(constraint::JuMP.LinearConstraint,i::Integer)
     return LinearConstraint(G,g,i)
 end
 
-function linearconstraints(m::JuMPModel)
+function linearconstraints(m::JuMP.Model)
     constraints = Vector{HyperPlane{LinearConstraint}}(length(m.linconstr))
     for (i,c) in enumerate(m.linconstr)
         constraints[i] = LinearConstraint(c,i)

@@ -2,7 +2,7 @@ mutable struct LQSolver{M <: AbstractLinearQuadraticModel, S <: AbstractMathProg
     lqmodel::M
     optimsolver::S
 
-    function (::Type{LQSolver})(model::JuMPModel,optimsolver::AbstractMathProgSolver)
+    function (::Type{LQSolver})(model::JuMP.Model,optimsolver::AbstractMathProgSolver)
         lqmodel = LinearQuadraticModel(optimsolver)
         solver = new{typeof(lqmodel),typeof(optimsolver)}(lqmodel,optimsolver)
         loadproblem!(solver.lqmodel,loadLP(model)...)
@@ -58,7 +58,7 @@ end
 
 status(solver::LQSolver) = MathProgBase.SolverInterface.status(solver.lqmodel)
 
-function loadLP(m::JuMPModel)
+function loadLP(m::JuMP.Model)
     l = m.colLower
     u = m.colUpper
 

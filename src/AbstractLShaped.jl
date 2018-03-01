@@ -1,4 +1,4 @@
-abstract type AbstractLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} end
+abstract type AbstractLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractStructuredModel end
 
 nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
@@ -182,7 +182,7 @@ end
     tickfontsize := 14
     tickfontfamily := "sans-serif"
     guidefontsize := 16
-    guidfontfamily := "sans-serif"
+    guidefontfamily := "sans-serif"
     titlefontsize := 22
     titlefontfamily := "sans-serif"
     xlabel := time == -1 ? "Iteration" : "Time [s]"

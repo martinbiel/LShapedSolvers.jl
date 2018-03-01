@@ -1,4 +1,4 @@
-using LShaped
+using LShapedSolvers
 using Base.Test
 using JuMP
 using StructJuMP
@@ -49,9 +49,9 @@ end
     solver = ClpSolver()
     solve(ref)
 
-    ls = LShapedSolver(m,solver,solver)
+    ls = LShaped(m,solver,solver)
     ls()
-    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShapedSolvers.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
@@ -60,9 +60,9 @@ end
     solver = Gurobi.GurobiSolver(OutputFlag=0)
     solve(ref)
 
-    ls = RegularizedLShapedSolver(m,solver,solver)
+    ls = Regularized(m,solver,solver)
     ls()
-    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShapedSolvers.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end
 
@@ -71,8 +71,8 @@ end
     solver = ClpSolver()
     solve(ref)
 
-    ls = TrustRegionLShapedSolver(m,[40,20.],solver,solver)
+    ls = TrustRegion(m,[40,20.],solver,solver)
     ls()
-    @test norm(LShaped.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
+    @test norm(LShapedSolvers.get_solution(ls) - ref.colVal[1:2]) <= 1e-6
     @test abs(get_objective_value(ls) - ref.objVal) <= 1e-6
 end

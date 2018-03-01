@@ -1,4 +1,4 @@
-module LShaped
+module LShapedSolvers
 
 using TraitDispatch
 using Parameters
@@ -9,6 +9,7 @@ using RecipesBase
 using TimerOutputs
 
 import Base.show
+import StochasticPrograms: StructuredModel, optimize_structured!, fill_solution!
 importall MathProgBase.SolverInterface
 
 using Base.Order: Ordering, ReverseOrdering, Reverse
@@ -16,16 +17,11 @@ using DataStructures: PriorityQueue,enqueue!,dequeue!
 
 export
     LShapedSolver,
-    RegularizedLShapedSolver,
-    TrustRegionLShapedSolver,
-    LevelSetLShapedSolver,
-    PLShapedSolver,
-    LPSolver,
+    StructuredModel,
+    optimize_structured!,
+    fill_solution!,
     get_solution,
     get_objective_value
-
-JuMPModel = JuMP.Model
-JuMPVariable = JuMP.Variable
 
 # Include files
 include("LPSolver.jl")
@@ -34,10 +30,11 @@ include("hyperplane.jl")
 include("AbstractLShaped.jl")
 include("localization.jl")
 include("parallel.jl")
-include("solvers/LShapedSolver.jl")
-include("solvers/PLShapedSolver.jl")
-include("solvers/RegularizedLShapedSolver.jl")
-include("solvers/TrustRegionLShapedSolver.jl")
-include("solvers/LevelSetLShapedSolver.jl")
+include("solvers/LShaped.jl")
+include("solvers/PLShaped.jl")
+include("solvers/Regularized.jl")
+include("solvers/TrustRegion.jl")
+include("solvers/LevelSet.jl")
+include("spinterface.jl")
 
 end # module

@@ -1,18 +1,18 @@
-@with_kw mutable struct LevelSetSolverData{T <: Real}
+@with_kw mutable struct LevelSetData{T <: Real}
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
     i::Int = 1
 end
 
-@with_kw struct LevelSetSolverParameters{T <: Real}
+@with_kw struct LevelSetParameters{T <: Real}
     τ::T = 1e-6
     λ::T = 1.0
 end
 
-struct LevelSetLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
-    structuredmodel::JuMPModel
-    solverdata::LevelSetSolverData{T}
+struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+    structuredmodel::JuMP.Model
+    solverdata::LevelSetData{T}
 
     # Master
     mastersolver::M
@@ -41,11 +41,11 @@ struct LevelSetLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <:
     θ_history::A
 
     # Params
-    parameters::LevelSetSolverParameters{T}
+    parameters::LevelSetParameters{T}
 
-    @implement_trait LevelSetLShapedSolver HasLevels
+    @implement_trait LevelSet HasLevels
 
-    function (::Type{LevelSetLShapedSolver})(model::JuMPModel,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{LevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
 
@@ -63,7 +63,7 @@ struct LevelSetLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <:
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               LevelSetSolverData{T}(),
+                               LevelSetData{T}(),
                                msolver,
                                psolver,
                                c_,
@@ -81,15 +81,15 @@ struct LevelSetLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <:
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               LevelSetSolverParameters{T}(;kw...))
+                               LevelSetParameters{T}(;kw...))
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-LevelSetLShapedSolver(model::JuMPModel,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LevelSetLShapedSolver(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::LevelSetLShapedSolver)()
+function (lshaped::LevelSet)()
     println("Starting L-Shaped procedure with level sets")
     println("======================")
 
@@ -112,7 +112,7 @@ function (lshaped::LevelSetLShapedSolver)()
     end
 end
 
-function iterate!(lshaped::LevelSetLShapedSolver)
+function iterate!(lshaped::LevelSet)
     if isempty(lshaped.violating)
         # Resolve all subproblems at the current optimal solution
         lshaped.solverdata.Q = resolve_subproblems!(lshaped)

@@ -9,7 +9,7 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
     y::A
     masterterms::Vector{Tuple{Int,Int,T}}
 
-    function (::Type{SubProblem})(model::JuMPModel,parent::JuMPModel,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
+    function (::Type{SubProblem})(model::JuMP.Model,parent::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
         T = promote_type(eltype(x),eltype(y₀),Float32)
         x_ = convert(AbstractVector{T},x)
         y₀_ = convert(AbstractVector{T},y₀)
@@ -32,7 +32,7 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
     end
 end
 
-function parseSubProblem!(subproblem::SubProblem,model::JuMPModel,parent::JuMPModel)
+function parseSubProblem!(subproblem::SubProblem,model::JuMP.Model,parent::JuMP.Model)
     for (i,constr) in enumerate(model.linconstr)
         for (j,var) in enumerate(constr.terms.vars)
             if var.m == parent

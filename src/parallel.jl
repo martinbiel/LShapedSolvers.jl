@@ -69,8 +69,8 @@ QCut{T} = Tuple{T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
 function init_subworker!(subworker::SubWorker{T,A,S},
-                         parent::JuMPModel,
-                         submodels::Vector{JuMPModel},
+                         parent::JuMP.Model,
+                         submodels::Vector{JuMP.Model},
                          πs::A,
                          x::A,
                          subsolver::AbstractMathProgSolver,
