@@ -105,14 +105,12 @@ function (lshaped::RegularizedLShapedSolver)()
         iterate!(lshaped)
 
         if check_optimality(lshaped)
-            if lshaped.solverdata.Q̃ + lshaped.parameters.τ <= -1.2014137491535408e7
-                # Optimal
-                update_structuredmodel!(lshaped)
-                println("Optimal!")
-                println("Objective value: ", calculate_objective_value(lshaped))
-                println("======================")
-                break
-            end
+            # Optimal
+            update_structuredmodel!(lshaped)
+            println("Optimal!")
+            println("Objective value: ", calculate_objective_value(lshaped))
+            println("======================")
+            break
         end
     end
 end

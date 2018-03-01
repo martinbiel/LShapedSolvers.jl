@@ -105,10 +105,10 @@ end
 
 # Cut functions #
 # ======================================================================== #
-active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.τ)
-active(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = optimal(cut,lshaped.x,lshaped.θs[cut.id],lshaped.τ)
-satisfied(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = satisfied(hyperplane,lshaped.x,lshaped.τ)
-satisfied(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = satisfied(cut,lshaped.x,lshaped.θs[cut.id],lshaped.τ)
+active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.parameters.τ)
+active(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = optimal(cut,lshaped.x,lshaped.θs[cut.id],lshaped.parameters.τ)
+satisfied(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = satisfied(hyperplane,lshaped.x,lshaped.parameters.τ)
+satisfied(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = satisfied(cut,lshaped.x,lshaped.θs[cut.id],lshaped.parameters.τ)
 violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = !satisfied(lshaped,hyperplane)
 gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = gap(hyperplane,lshaped.x)
 gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lshaped.x,lshaped.θs[cut.id])
@@ -179,9 +179,12 @@ end
 
     linewidth --> 4
     linecolor --> :black
-    tickfont := font(14,"sans-serif")
-    guidefont := font(16,"sans-serif")
-    titlefont := font(22,"sans-serif")
+    tickfontsize := 14
+    tickfontfamily := "sans-serif"
+    guidefontsize := 16
+    guidfontfamily := "sans-serif"
+    titlefontsize := 22
+    titlefontfamily := "sans-serif"
     xlabel := time == -1 ? "Iteration" : "Time [s]"
     ylabel := "Q"
     ylims --> (Qmin-increment,Qmax+increment)

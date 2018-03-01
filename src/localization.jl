@@ -20,13 +20,13 @@ end
         @unpack τ = lshaped.parameters
         Q = get_objective_value(lshaped)
         θ = calculate_estimate(lshaped)
-        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(θ))
+        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
     end
 
     function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
         @unpack τ = lshaped.parameters
         @unpack Q,θ = lshaped.solverdata
-        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(θ))
+        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
     end
 end
 
@@ -86,24 +86,27 @@ end
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
-    if abs(θ-Q) <= τ*(1+abs(θ))
-        println("Exact serious step")
-        lshaped.ξ[:] = lshaped.x[:]
-        lshaped.solverdata.Q̃ = Q
-        lshaped.solverdata.exact_steps += 1
-        lshaped.solverdata.σ *= σ̅
-        update_objective!(lshaped)
-        push!(lshaped.step_hist,3)
-    elseif Q + τ*(1+abs(Q)) <= γ*Q̃ + (1-γ)*θ
+    # if abs(θ-Q) <= τ*(1+abs(θ))
+    #     println("Exact serious step")
+    #     lshaped.ξ[:] = lshaped.x[:]
+    #     lshaped.solverdata.Q̃ = Q
+    #     lshaped.solverdata.exact_steps += 1
+    #     lshaped.solverdata.σ *= σ̅
+    #     update_objective!(lshaped)
+    #     push!(lshaped.step_hist,3)
+    if Q + τ*(1+abs(Q)) <= Q̃
         println("Approximate serious step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
+        lshaped.solverdata.σ *= 2
+        lshaped.solverdata.σ = min(σ̅,lshaped.solverdata.σ)
         lshaped.solverdata.approximate_steps += 1
         push!(lshaped.step_hist,2)
     else
         println("Null step")
         lshaped.solverdata.null_steps += 1
-        lshaped.solverdata.σ *= σ̲
+        lshaped.solverdata.σ *= 0.5
+        lshaped.solverdata.σ = max(σ̲,lshaped.solverdata.σ)
         update_objective!(lshaped)
         push!(lshaped.step_hist,1)
     end

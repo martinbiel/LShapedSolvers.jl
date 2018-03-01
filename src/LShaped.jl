@@ -7,7 +7,6 @@ using StochasticPrograms
 using MathProgBase
 using RecipesBase
 using TimerOutputs
-using Plots.font
 
 import Base.show
 importall MathProgBase.SolverInterface
