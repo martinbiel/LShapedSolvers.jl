@@ -149,7 +149,7 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     D = D/scaling
 
     println("Added Feasibility Cut")
-    if hastrait(lshaped,UsesLocalization)
+    if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
     end
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)

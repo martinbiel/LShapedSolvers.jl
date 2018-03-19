@@ -36,9 +36,13 @@ end
     end
 
     function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},UsesRegularization)
-        push!(lshaped.committee,cut)
         nothing
     end
+end
+
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},IsRegularized)
+    push!(lshaped.committee,cut)
+    nothing
 end
 
 @define_traitfn UsesRegularization remove_inactive!(lshaped::AbstractLShapedSolver) = begin

@@ -34,6 +34,7 @@ include("solvers/LShaped.jl")
 include("solvers/PLShaped.jl")
 include("solvers/Regularized.jl")
 include("solvers/TrustRegion.jl")
+include("solvers/ATrustRegion.jl")
 include("solvers/LevelSet.jl")
 include("spinterface.jl")
 
