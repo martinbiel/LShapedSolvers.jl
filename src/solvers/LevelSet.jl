@@ -109,6 +109,7 @@ function (lshaped::LevelSet)()
         end
 
         project!(lshaped)
+        lshaped.ξ[:] = lshaped.x[:]
     end
 end
 
@@ -143,7 +144,6 @@ function iterate!(lshaped::LevelSet)
         return
     end
     update_solution!(lshaped)
-    lshaped.ξ[:] = lshaped.x[:]
     lshaped.solverdata.θ = calculate_estimate(lshaped)
     # remove_inactive!(lshaped)
     # if length(lshaped.violating) <= lshaped.nscenarios

@@ -1,48 +1,48 @@
 # ------------------------------------------------------------
-# UsesLocalization: Algorithm uses some localization method
+# UsesRegularization: Algorithm uses some regularization method
 # ------------------------------------------------------------
-@define_trait UsesLocalization = begin
+@define_trait UsesRegularization = begin
     IsRegularized  # Algorithm uses the regularized decomposition method of Ruszczyński
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
     HasLevels      # Algorithm uses the level set method of Lemarcheral
 end
 
-@define_traitfn UsesLocalization init_solver!(lshaped::AbstractLShapedSolver) = begin
-    function init_solver!(lshaped::AbstractLShapedSolver,!UsesLocalization)
+@define_traitfn UsesRegularization init_solver!(lshaped::AbstractLShapedSolver) = begin
+    function init_solver!(lshaped::AbstractLShapedSolver,!UsesRegularization)
         nothing
     end
 end
 
-@define_traitfn UsesLocalization take_step!(lshaped::AbstractLShapedSolver)
+@define_traitfn UsesRegularization take_step!(lshaped::AbstractLShapedSolver)
 
-@define_traitfn UsesLocalization check_optimality(lshaped::AbstractLShapedSolver) = begin
-    function check_optimality(lshaped::AbstractLShapedSolver,!UsesLocalization)
+@define_traitfn UsesRegularization check_optimality(lshaped::AbstractLShapedSolver) = begin
+    function check_optimality(lshaped::AbstractLShapedSolver,!UsesRegularization)
         @unpack τ = lshaped.parameters
         Q = get_objective_value(lshaped)
         θ = calculate_estimate(lshaped)
         return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
     end
 
-    function check_optimality(lshaped::AbstractLShapedSolver,UsesLocalization)
+    function check_optimality(lshaped::AbstractLShapedSolver,UsesRegularization)
         @unpack τ = lshaped.parameters
         @unpack Q,θ = lshaped.solverdata
         return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
     end
 end
 
-@define_traitfn UsesLocalization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = begin
-    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},!UsesLocalization)
+@define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = begin
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},!UsesRegularization)
         nothing
     end
 
-    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},UsesLocalization)
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},UsesRegularization)
         push!(lshaped.committee,cut)
         nothing
     end
 end
 
-@define_traitfn UsesLocalization remove_inactive!(lshaped::AbstractLShapedSolver) = begin
-    function remove_inactive!(lshaped::AbstractLShapedSolver,UsesLocalization)
+@define_traitfn UsesRegularization remove_inactive!(lshaped::AbstractLShapedSolver) = begin
+    function remove_inactive!(lshaped::AbstractLShapedSolver,UsesRegularization)
         inactive = find(c->!active(lshaped,c),lshaped.committee)
         diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
         if isempty(inactive) || diff <= 0
@@ -58,8 +58,8 @@ end
     end
 end
 
-@define_traitfn UsesLocalization queueViolated!(lshaped::AbstractLShapedSolver) = begin
-    function queueViolated!(lshaped::AbstractLShapedSolver,UsesLocalization)
+@define_traitfn UsesRegularization queueViolated!(lshaped::AbstractLShapedSolver) = begin
+    function queueViolated!(lshaped::AbstractLShapedSolver,UsesRegularization)
         violating = find(c->violated(lshaped,c),lshaped.inactive)
         if isempty(violating)
             return false
@@ -241,7 +241,7 @@ end
 
     # Update level
     c = sparse(getobj(lshaped.projectionsolver.lqmodel))
-    L = (1-λ)*θ + λ*Q̃
+    L = (1-λ)*Q̃ + λ*θ
     addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
 
     # Update regularizer
@@ -259,6 +259,7 @@ end
         error("The level set algorithm requires a solver that handles quadratic objectives")
     end
 
+    # Solve projection problem
     lshaped.projectionsolver(lshaped.x)
     if status(lshaped.projectionsolver) == :Infeasible
         println("Projection problem is infeasible, aborting procedure.")
