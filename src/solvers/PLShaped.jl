@@ -43,7 +43,7 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
             return LShapedSolver(model,x₀,mastersolver,subsolver)
         end
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
-        !haskey(model.ext,:Stochastic) && error("The provided model is not structured")
+        !haskey(model.ext,:SP) && error("The provided model is not structured")
 
         T = promote_type(eltype(x₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
@@ -54,7 +54,7 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = num_scenarios(model)
+        n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
                                PLShapedData{T}(),

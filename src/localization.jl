@@ -98,8 +98,10 @@ end
         println("Approximate serious step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
-        lshaped.solverdata.σ *= 2
-        lshaped.solverdata.σ = min(σ̅,lshaped.solverdata.σ)
+        if abs(Q - Q̃) <= 0.5*(Q̃-θ)
+            # Enlarge the trust-region radius
+            lshaped.solverdata.σ = min(σ̅,lshaped.solverdata.σ*2)
+        end
         lshaped.solverdata.approximate_steps += 1
         push!(lshaped.step_hist,2)
     else

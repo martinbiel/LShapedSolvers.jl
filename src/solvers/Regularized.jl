@@ -122,19 +122,19 @@ function iterate!(lshaped::Regularized)
         # Update the optimization vector
         take_step!(lshaped)
     else
-        # # Add at most L violating constraints
-        # L = 0
-        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
-        #     constraint = dequeue!(lshaped.violating)
-        #     if satisfied(lshaped,constraint)
-        #         push!(lshaped.inactive,constraint)
-        #         continue
-        #     end
-        #     println("Adding violated constraint to committee")
-        #     push!(lshaped.committee,constraint)
-        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-        #     L += 1
-        # end
+        # Add at most L violating constraints
+        L = 0
+        while !isempty(lshaped.violating) && L < lshaped.nscenarios
+            constraint = dequeue!(lshaped.violating)
+            if satisfied(lshaped,constraint)
+                push!(lshaped.inactive,constraint)
+                continue
+            end
+            println("Adding violated constraint to committee")
+            push!(lshaped.committee,constraint)
+            addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
+            L += 1
+        end
     end
 
     # Resolve master
@@ -148,10 +148,10 @@ function iterate!(lshaped::Regularized)
     # Update master solution
     update_solution!(lshaped)
     lshaped.solverdata.θ = calculate_estimate(lshaped)
-    # remove_inactive!(lshaped)
-    # if length(lshaped.violating) <= lshaped.nscenarios
-    #     queueViolated!(lshaped)
-    # end
+    remove_inactive!(lshaped)
+    if length(lshaped.violating) <= lshaped.nscenarios
+        queueViolated!(lshaped)
+    end
     push!(lshaped.Q_history,lshaped.solverdata.Q)
     push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
     push!(lshaped.θ_history,lshaped.solverdata.θ)
