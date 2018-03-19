@@ -40,9 +40,10 @@ function calculate_estimate(lshaped::AbstractLShapedSolver)
     return lshaped.c⋅lshaped.x + sum(lshaped.θs)
 end
 
-function calculate_objective_value(lshaped::AbstractLShapedSolver)
-    return lshaped.c⋅lshaped.x + sum(lshaped.subobjectives)
+function calculate_objective_value(lshaped::AbstractLShapedSolver,Qs::AbstractVector)
+    return lshaped.c⋅lshaped.x + sum(Qs)
 end
+calculate_objective_value(lshaped) = calculate_objective_value(lshaped,lshaped.subobjectives)
 
 function get_solution(lshaped::AbstractLShapedSolver)
     return lshaped.x
@@ -77,6 +78,7 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
             return
         end
         addcut!(lshaped,cut)
+        lshaped.subobjectives[cut.id] = cut(lshaped.x)
     end
 
     # Return current objective value
@@ -103,6 +105,12 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::Tim
     return calculate_objective_value(lshaped)
 end
 
+function check_optimality(lshaped::AbstractLShapedSolver)
+    @unpack τ = lshaped.parameters
+    @unpack Q,θ = lshaped.solverdata
+    return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
+end
+
 # Cut functions #
 # ======================================================================== #
 active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.parameters.τ)
@@ -116,11 +124,6 @@ gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lsh
 function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q::Real)
     θ = lshaped.θs[cut.id]
     @unpack τ = lshaped.parameters
-
-    lshaped.subobjectives[cut.id] = Q
-
-    #println("θ",cut.id,": ", θ)
-    #println("Q",cut.id,": ", Q)
 
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem

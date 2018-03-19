@@ -15,6 +15,7 @@
     end
 
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+        @unpack σ = lshaped.parameters
         # Partitioning
         (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
         # One extra to guarantee coverage
@@ -27,8 +28,8 @@
         stop = jobLength
         @sync for w in workers()
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
-            lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{A}(10), w)
-            put!(lshaped.mastercolumns[w-1],lshaped.x)
+            lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{Tuple{Int,A}}(round(Int,10/σ)), w)
+            put!(lshaped.mastercolumns[w-1],(1,lshaped.x))
             submodels = [subproblem(m,i) for i = start:stop]
             πs = [probability(m,i) for i = start:stop]
             @spawnat w init_subworker!(lshaped.subworkers[w-1],
@@ -64,8 +65,8 @@ end
 # Parallel routines #
 # ======================================================================== #
 SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
-MasterColumn{A} = RemoteChannel{Channel{A}}
-QCut{T} = Tuple{T,SparseHyperPlane{T}}
+MasterColumn{A} = RemoteChannel{Channel{Tuple{Int,A}}}
+QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
 function init_subworker!(subworker::SubWorker{T,A,S},
@@ -88,7 +89,7 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                               rx::MasterColumn{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     while true
-        x::A = take!(rx)
+        t,x::A = take!(rx)
         if isempty(x)
             println("Worker finished")
             return
@@ -98,7 +99,7 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
             println("Solving subproblem: ",subproblem.id)
             cut = subproblem()
             Q::T = cut(x)
-            put!(cuts,(Q,cut))
+            put!(cuts,(t,Q,cut))
             println("Subproblem: ",subproblem.id," solved")
         end
     end

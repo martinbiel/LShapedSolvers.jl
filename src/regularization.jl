@@ -15,21 +15,6 @@ end
 
 @define_traitfn UsesRegularization take_step!(lshaped::AbstractLShapedSolver)
 
-@define_traitfn UsesRegularization check_optimality(lshaped::AbstractLShapedSolver) = begin
-    function check_optimality(lshaped::AbstractLShapedSolver,!UsesRegularization)
-        @unpack τ = lshaped.parameters
-        Q = get_objective_value(lshaped)
-        θ = calculate_estimate(lshaped)
-        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
-    end
-
-    function check_optimality(lshaped::AbstractLShapedSolver,UsesRegularization)
-        @unpack τ = lshaped.parameters
-        @unpack Q,θ = lshaped.solverdata
-        return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
-    end
-end
-
 @define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = begin
     function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},!UsesRegularization)
         nothing
