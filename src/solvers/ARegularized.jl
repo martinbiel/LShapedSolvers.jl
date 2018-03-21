@@ -1,25 +1,26 @@
-@with_kw mutable struct ATrustRegionData{T <: Real}
+@with_kw mutable struct ARegularizedData{T <: Real}
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
-    Δ::T = 1.0
-    cΔ::Int = 0
-    major_steps::Int = 0
-    minor_steps::Int = 0
+    σ::T = 1.0
+    exact_steps::Int = 0
+    approximate_steps::Int = 0
+    null_steps::Int = 0
     timestamp::Int = 1
 end
 
-@with_kw struct ATrustRegionParameters{T <: Real}
+@with_kw struct ARegularizedParameters{T <: Real}
     σ::T = 0.4
     τ::T = 1e-6
-    γ::T = 1e-4
-    Δ = 1.0
-    Δ̅::T = 1.0
+    γ::T = 0.9
+    σ::T = 1.0
+    σ̅::T = 4.0
+    σ̲::T = 0.5
 end
 
-struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
-    solverdata::ATrustRegionData{T}
+    solverdata::ARegularizedData{T}
 
     # Master
     mastersolver::M
@@ -49,15 +50,15 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     θ_history::A
 
     # Params
-    parameters::ATrustRegionParameters{T}
+    parameters::ARegularizedParameters{T}
 
-    @implement_trait ATrustRegion HasTrustRegion
-    @implement_trait ATrustRegion IsParallel
+    @implement_trait ARegularized IsRegularized
+    @implement_trait ARegularized IsParallel
 
-    function (::Type{ATrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{ARegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() == 1
             warn("There are no worker processes, defaulting to serial version of algorithm")
-            return TrustRegion(model,ξ₀,mastersolver,subsolver)
+            return Regularized(model,ξ₀,mastersolver,subsolver)
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
@@ -75,7 +76,7 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               ATrustRegionData{T}(),
+                               ARegularizedData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -93,7 +94,7 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               ATrustRegionParameters{T}(;kw...))
+                               ARegularizedParameters{T}(;kw...))
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
         push!(lshaped.Q_history,Inf)
@@ -105,9 +106,9 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         return lshaped
     end
 end
-ATrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ATrustRegion(model,rand(model.numCols),mastersolver,subsolver; kw...)
+ARegularized(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ARegularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     println("Starting parallel L-Shaped procedure\n")
     println("======================")
 
@@ -199,36 +200,5 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
         end
-    end
-end
-
-@implement_traitfn function enlarge_trustregion!(lshaped::ATrustRegion,HasTrustRegion)
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    @unpack τ,Δ̅ = lshaped.parameters
-    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
-        # Enlarge the trust-region radius
-        lshaped.solverdata.Δ = max(lshaped.solverdata.Δ,min(Δ̅,2*lshaped.solverdata.Δ))
-        set_trustregion!(lshaped)
-        return true
-    else
-        return false
-    end
-end
-
-@implement_traitfn function reduce_trustregion!(lshaped::ATrustRegion,HasTrustRegion)
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
-    @show ρ
-    if ρ > 0
-        lshaped.solverdata.cΔ += 1
-    end
-    if ρ > 3 || (lshaped.solverdata.cΔ >= 3 && 1 < ρ <= 3)
-        # Reduce the trust-region radius
-        lshaped.solverdata.cΔ = 0
-        lshaped.solverdata.Δ = min(lshaped.solverdata.Δ,(1/min(ρ,4))*lshaped.solverdata.Δ)
-        set_trustregion!(lshaped)
-        return true
-    else
-        return false
     end
 end
