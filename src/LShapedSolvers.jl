@@ -8,7 +8,7 @@ using MathProgBase
 using RecipesBase
 using TimerOutputs
 
-import Base.show
+import Base: show, put!, wait, isready, take!, fetch
 import StochasticPrograms: StructuredModel, optimize_structured!, fill_solution!
 importall MathProgBase.SolverInterface
 
@@ -31,7 +31,7 @@ include("AbstractLShaped.jl")
 include("regularization.jl")
 include("parallel.jl")
 include("solvers/LShaped.jl")
-include("solvers/PLShaped.jl")
+include("solvers/ALShaped.jl")
 include("solvers/Regularized.jl")
 include("solvers/TrustRegion.jl")
 include("solvers/ATrustRegion.jl")

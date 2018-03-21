@@ -22,14 +22,16 @@
         if extra > 0
             jobLength += 1
         end
+        # Load initial decision
+        put!(lshaped.decisions,1,lshaped.x)
         # Create subproblems on worker processes
         m = lshaped.structuredmodel
         start = 1
         stop = jobLength
         @sync for w in workers()
+            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/σ)), w)
+            put!(lshaped.work[w-1],1)
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
-            lshaped.mastercolumns[w-1] = RemoteChannel(() -> Channel{Tuple{Int,A}}(round(Int,10/σ)), w)
-            put!(lshaped.mastercolumns[w-1],(1,lshaped.x))
             submodels = [subproblem(m,i) for i = start:stop]
             πs = [probability(m,i) for i = start:stop]
             @spawnat w init_subworker!(lshaped.subworkers[w-1],
@@ -56,16 +58,47 @@ end
     end
 
     function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector,IsParallel)
-        c = lshaped.structuredmodel.obj.aff.coeffs
-        objidx = [v.col for v in lshaped.structuredmodel.obj.aff.vars]
-        return c⋅x[objidx] + sum(fetch.([@spawnat w calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
+        return lshaped.c⋅x + sum(fetch.([@spawnat w+1 calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
     end
 end
 
 # Parallel routines #
 # ======================================================================== #
+mutable struct DecisionChannel{A <: AbstractArray} <: AbstractChannel
+    decisions::Dict{Int,A}
+    cond_take::Condition
+    DecisionChannel(decisions::Dict{Int,A}) where A <: AbstractArray = new{A}(decisions, Condition())
+end
+
+function put!(channel::DecisionChannel, t, x)
+    channel.decisions[t] = x
+    notify(channel.cond_take)
+    return channel
+end
+
+function take!(channel::DecisionChannel, t)
+    x = fetch(channel,t)
+    delete!(channel.decisions, t)
+    return x
+end
+
+isready(channel::DecisionChannel) = length(channel.decisions) > 1
+isready(channel::DecisionChannel, t) = haskey(channel.decisions,t)
+
+function fetch(channel::DecisionChannel, t)
+    wait(channel,t)
+    return channel.decisions[t]
+end
+
+function wait(channel::DecisionChannel, t)
+    while !isready(channel, t)
+        wait(channel.cond_take)
+    end
+end
+
 SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
-MasterColumn{A} = RemoteChannel{Channel{Tuple{Int,A}}}
+Work = RemoteChannel{Channel{Int}}
+Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
@@ -85,15 +118,17 @@ function init_subworker!(subworker::SubWorker{T,A,S},
 end
 
 function work_on_subproblems!(subworker::SubWorker{T,A,S},
+                              work::Work,
                               cuts::CutQueue{T},
-                              rx::MasterColumn{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+                              decisions::Decisions{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     while true
-        t,x::A = take!(rx)
-        if isempty(x)
+        t::Int = take!(work)
+        if t == -1
             println("Worker finished")
             return
         end
+        x::A = fetch(decisions,t)
         update_subproblems!(subproblems,x)
         for subproblem in subproblems
             println("Solving subproblem: ",subproblem.id)

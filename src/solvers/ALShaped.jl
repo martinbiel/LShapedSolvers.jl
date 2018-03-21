@@ -1,17 +1,17 @@
-@with_kw mutable struct PLShapedData{T <: Real}
+@with_kw mutable struct ALShapedData{T <: Real}
     Q::T = 1e10
     θ::T = -1e10
     timestamp::Int = 1
 end
 
-@with_kw struct PLShapedParameters{T <: Real}
+@with_kw struct ALShapedParameters{T <: Real}
     σ::T = 0.4
     τ::T = 1e-6
 end
 
-struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
-    solverdata::PLShapedData{T}
+    solverdata::ALShapedData{T}
 
     # Master
     mastersolver::M
@@ -26,7 +26,8 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
 
     # Workers
     subworkers::Vector{SubWorker{T,A,S}}
-    mastercolumns::Vector{MasterColumn{A}}
+    work::Vector{Work}
+    decisions::Decisions{A}
     cutqueue::CutQueue{T}
 
     # Cuts
@@ -35,11 +36,11 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     θ_history::A
 
     # Params
-    parameters::PLShapedParameters{T}
+    parameters::ALShapedParameters{T}
 
-    @implement_trait PLShaped IsParallel
+    @implement_trait ALShaped IsParallel
 
-    function (::Type{PLShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{ALShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() == 1
             warn("There are no worker processes, defaulting to serial version of algorithm")
             return LShaped(model,x₀,mastersolver,subsolver)
@@ -59,7 +60,7 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               PLShapedData{T}(),
+                               ALShapedData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -68,23 +69,26 @@ struct PLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                Vector{A}(),
                                Vector{Int}(),
                                Vector{SubWorker{T,A,S}}(nworkers()),
-                               Vector{MasterColumn{A}}(nworkers()),
+                               Vector{Work}(nworkers()),
+                               RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               PLShapedParameters{T}(;kw...))
+                               ALShapedParameters{T}(;kw...))
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
         push!(lshaped.Q_history,Inf)
+        push!(lshaped.θ_history,-Inf)
+
         init!(lshaped,subsolver)
 
         return lshaped
     end
 end
-PLShaped(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = PLShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
+ALShaped(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ALShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::PLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     println("Starting parallel L-Shaped procedure\n")
     println("======================")
 
@@ -93,9 +97,12 @@ function (lshaped::PLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
     println("Start workers")
     for w in workers()
         println("Send work to ",w)
-        finished_workers[w-1] = @spawnat w work_on_subproblems!(lshaped.subworkers[w-1],
-                                                                lshaped.cutqueue,
-                                                                lshaped.mastercolumns[w-1])
+        finished_workers[w-1] = remotecall(work_on_subproblems!,
+                                           w,
+                                           lshaped.subworkers[w-1],
+                                           lshaped.work[w-1],
+                                           lshaped.cutqueue,
+                                           lshaped.decisions)
         println("Now ",w, " is working")
     end
     println("Main loop")
@@ -105,7 +112,7 @@ function (lshaped::PLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
         while isready(lshaped.cutqueue)
             println("Cuts are ready")
             # Add new cuts from subworkers
-            t,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
+            t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
             if !bounded(cut)
                 println("Subproblem ",cut.id," is unbounded, aborting procedure.")
                 println("======================")
@@ -119,17 +126,6 @@ function (lshaped::PLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                 if lshaped.Q_history[t] <= lshaped.solverdata.Q
                     lshaped.solverdata.Q = lshaped.Q_history[t]
                 end
-
-                if check_optimality(lshaped)
-                    # Optimal
-                    map(rx->put!(rx,(-1,[])),lshaped.mastercolumns)
-                    #update_structuredmodel!(lshaped)
-                    map(wait,finished_workers)
-                    println("Optimal!")
-                    println("Objective value: ", lshaped.Q_history[t])
-                    println("======================")
-                    return nothing
-                end
             end
         end
 
@@ -142,16 +138,36 @@ function (lshaped::PLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                 println("======================")
                 return
             end
+
             # Update master solution
             update_solution!(lshaped)
-            lshaped.solverdata.timestamp += 1
-            for rx in lshaped.mastercolumns
-                put!(rx,(lshaped.solverdata.timestamp,lshaped.x))
-            end
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
-            push!(lshaped.Q_history,Inf)
-            push!(lshaped.θ_history,θ)
+            t = lshaped.solverdata.timestamp
+            lshaped.θ_history[t] = θ
+
+            if check_optimality(lshaped)
+                # Optimal
+                map(w->put!(w,-1),lshaped.work)
+                lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+                lshaped.Q_history[t] = lshaped.solverdata.Q
+                map(wait,finished_workers)
+                println("Optimal!")
+                println("Objective value: ", lshaped.Q_history[t])
+                println("======================")
+                return
+            end
+
+            # Send new decision vector to workers
+            put!(lshaped.decisions,t+1,lshaped.x)
+            for w in lshaped.work
+                put!(w,t+1)
+            end
+
+            # Prepare memory for next timestamp
+            lshaped.solverdata.timestamp += 1
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
+            push!(lshaped.θ_history,lshaped.solverdata.θ)
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
         end

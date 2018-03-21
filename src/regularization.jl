@@ -168,7 +168,6 @@ end
     if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
         # Enlarge the trust-region radius
         lshaped.solverdata.Δ = min(Δ̅,2*lshaped.solverdata.Δ)
-        push!(lshaped.Δ_history,lshaped.solverdata.Δ)
         set_trustregion!(lshaped)
         return true
     else
@@ -187,7 +186,6 @@ end
         # Reduce the trust-region radius
         lshaped.solverdata.cΔ = 0
         lshaped.solverdata.Δ = (1/min(ρ,4))*lshaped.solverdata.Δ
-        push!(lshaped.Δ_history,lshaped.solverdata.Δ)
         set_trustregion!(lshaped)
         return true
     else

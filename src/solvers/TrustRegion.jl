@@ -103,7 +103,9 @@ function (lshaped::TrustRegion)()
 
         if check_optimality(lshaped)
             # Optimal
-            update_structuredmodel!(lshaped)
+            lshaped.x[:] = lshaped.ξ[:]
+            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
@@ -149,6 +151,7 @@ function iterate!(lshaped::TrustRegion)
     #     queueViolated!(lshaped)
     # end
     push!(lshaped.Q_history,lshaped.solverdata.Q)
+    push!(lshaped.Δ_history,lshaped.solverdata.Δ)
     push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
     push!(lshaped.θ_history,lshaped.solverdata.θ)
     nothing

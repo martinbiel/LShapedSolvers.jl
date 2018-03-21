@@ -78,7 +78,8 @@ function (lshaped::LShaped)()
 
         if check_optimality(lshaped)
             # Optimal
-            update_structuredmodel!(lshaped)
+            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
