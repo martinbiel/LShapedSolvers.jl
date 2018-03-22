@@ -5,7 +5,7 @@
 end
 
 @with_kw struct ALShapedParameters{T <: Real}
-    σ::T = 0.4
+    κ::T = 0.3
     τ::T = 1e-6
 end
 
@@ -130,7 +130,8 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
         end
 
         # Resolve master
-        if lshaped.finished[lshaped.solverdata.timestamp] >= lshaped.parameters.σ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
+        t = lshaped.solverdata.timestamp
+        if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
             println("Solving master problem")
             lshaped.mastersolver(lshaped.x)
             if status(lshaped.mastersolver) == :Infeasible
@@ -143,9 +144,8 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             update_solution!(lshaped)
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
-            t = lshaped.solverdata.timestamp
-            lshaped.θ_history[t] = θ
 
+            lshaped.θ_history[t] = θ
             if check_optimality(lshaped)
                 # Optimal
                 map(w->put!(w,-1),lshaped.work)

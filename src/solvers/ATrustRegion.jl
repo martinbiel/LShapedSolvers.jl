@@ -10,7 +10,7 @@
 end
 
 @with_kw struct ATrustRegionParameters{T <: Real}
-    σ::T = 0.4
+    κ::T = 0.3
     τ::T = 1e-6
     γ::T = 1e-4
     Δ = 1.0
@@ -151,7 +151,8 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
         end
 
         # Resolve master
-        if lshaped.finished[lshaped.solverdata.timestamp] >= lshaped.parameters.σ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
+        t = lshaped.solverdata.timestamp
+        if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
             # Update the optimization vector
             println("Solving master problem")
             lshaped.mastersolver(lshaped.x)
@@ -166,7 +167,6 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
 
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
-            t = lshaped.solverdata.timestamp
             lshaped.Q̃_history[t] = lshaped.solverdata.Q̃
             lshaped.Δ_history[t] = lshaped.solverdata.Δ
             lshaped.θ_history[t] = θ

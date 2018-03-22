@@ -15,7 +15,7 @@
     end
 
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
-        @unpack σ = lshaped.parameters
+        @unpack κ = lshaped.parameters
         # Partitioning
         (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
         # One extra to guarantee coverage
@@ -29,7 +29,7 @@
         start = 1
         stop = jobLength
         @sync for w in workers()
-            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/σ)), w)
+            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
             put!(lshaped.work[w-1],1)
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
             submodels = [subproblem(m,i) for i = start:stop]

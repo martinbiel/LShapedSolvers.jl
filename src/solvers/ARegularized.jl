@@ -10,7 +10,7 @@
 end
 
 @with_kw struct ARegularizedParameters{T <: Real}
-    σ::T = 0.4
+    κ::T = 0.3
     τ::T = 1e-6
     γ::T = 0.9
     σ::T = 1.0
@@ -28,6 +28,10 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     x::A
     Q_history::A
 
+    committee::Vector{SparseHyperPlane{T}}
+    inactive::Vector{SparseHyperPlane{T}}
+    violating::PriorityQueue{SparseHyperPlane{T},T}
+
     # Subproblems
     nscenarios::Int
     subobjectives::Vector{A}
@@ -42,7 +46,7 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     # Trust region
     ξ::A
     Q̃_history::A
-    Δ_history::A
+    σ_history::A
 
     # Cuts
     θs::A
@@ -81,6 +85,9 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                c_,
                                x₀_,
                                A(),
+                               convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
+                               Vector{SparseHyperPlane{T}}(),
+                               PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{A}(),
                                Vector{Int}(),
@@ -152,7 +159,8 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
         end
 
         # Resolve master
-        if lshaped.finished[lshaped.solverdata.timestamp] >= lshaped.parameters.σ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
+        t = lshaped.solverdata.timestamp
+        if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
             # Update the optimization vector
             println("Solving master problem")
             lshaped.mastersolver(lshaped.x)
@@ -167,9 +175,8 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
 
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
-            t = lshaped.solverdata.timestamp
             lshaped.Q̃_history[t] = lshaped.solverdata.Q̃
-            lshaped.Δ_history[t] = lshaped.solverdata.Δ
+            lshaped.σ_history[t] = lshaped.solverdata.σ
             lshaped.θ_history[t] = θ
 
             if check_optimality(lshaped)
@@ -195,7 +202,7 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             lshaped.solverdata.timestamp += 1
             push!(lshaped.Q_history,lshaped.solverdata.Q)
             push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
-            push!(lshaped.Δ_history,lshaped.solverdata.Δ)
+            push!(lshaped.σ_history,lshaped.solverdata.σ)
             push!(lshaped.θ_history,lshaped.solverdata.θ)
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)

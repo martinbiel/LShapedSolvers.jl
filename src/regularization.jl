@@ -68,6 +68,7 @@ end
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     lshaped.solverdata.σ = lshaped.parameters.σ
+    push!(lshaped.σ_history,lshaped.solverdata.σ)
 
     update_objective!(lshaped)
 end
@@ -82,7 +83,6 @@ end
     #     lshaped.solverdata.exact_steps += 1
     #     lshaped.solverdata.σ *= σ̅
     #     update_objective!(lshaped)
-    #     push!(lshaped.step_hist,3)
     if Q + τ*(1+abs(Q)) <= Q̃
         println("Approximate serious step")
         lshaped.ξ[:] = lshaped.x[:]
@@ -92,14 +92,12 @@ end
             lshaped.solverdata.σ = min(σ̅,lshaped.solverdata.σ*2)
         end
         lshaped.solverdata.approximate_steps += 1
-        push!(lshaped.step_hist,2)
     else
         println("Null step")
         lshaped.solverdata.null_steps += 1
         lshaped.solverdata.σ *= 0.5
         lshaped.solverdata.σ = max(σ̲,lshaped.solverdata.σ)
         update_objective!(lshaped)
-        push!(lshaped.step_hist,1)
     end
     nothing
 end

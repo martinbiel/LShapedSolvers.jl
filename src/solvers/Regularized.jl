@@ -39,7 +39,6 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     Q̃_history::A
     Q_history::A
     σ_history::A
-    step_hist::Vector{Int}
 
     # Cuts
     θs::A
@@ -82,7 +81,6 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                A(),
                                A(),
                                A(),
-                               Vector{Int}(),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
