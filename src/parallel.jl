@@ -28,19 +28,22 @@
         m = lshaped.structuredmodel
         start = 1
         stop = jobLength
-        @sync for w in workers()
+        finished_workers = Vector{Future}(nworkers())
+        for w in workers()
             lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
             put!(lshaped.work[w-1],1)
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
             submodels = [subproblem(m,i) for i = start:stop]
             πs = [probability(m,i) for i = start:stop]
-            @spawnat w init_subworker!(lshaped.subworkers[w-1],
-                                       m,
-                                       submodels,
-                                       πs,
-                                       lshaped.x,
-                                       subsolver,
-                                       collect(start:stop))
+            finished_workers[w-1] = remotecall(init_subworker!,
+                                               w,
+                                               lshaped.subworkers[w-1],
+                                               m,
+                                               submodels,
+                                               πs,
+                                               lshaped.x,
+                                               subsolver,
+                                               collect(start:stop))
             if start > lshaped.nscenarios
                 continue
             end
@@ -48,6 +51,7 @@
             stop += jobLength
             stop = min(stop,lshaped.nscenarios)
         end
+        map(wait,finished_workers)
         lshaped
     end
 end
@@ -131,7 +135,7 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
         x::A = fetch(decisions,t)
         update_subproblems!(subproblems,x)
         for subproblem in subproblems
-            println("Solving subproblem: ",subproblem.id)
+            #println("Solving subproblem: ",subproblem.id)
             cut = subproblem()
             Q::T = cut(x)
             try
@@ -143,7 +147,7 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                     return
                 end
             end
-            println("Subproblem: ",subproblem.id," solved")
+            #println("Subproblem: ",subproblem.id," solved")
         end
     end
 end
