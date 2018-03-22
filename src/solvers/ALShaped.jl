@@ -151,6 +151,7 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                 map(w->put!(w,-1),lshaped.work)
                 lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
                 lshaped.Q_history[t] = lshaped.solverdata.Q
+                close(lshaped.cutqueue)
                 map(wait,finished_workers)
                 println("Optimal!")
                 println("Objective value: ", lshaped.Q_history[t])

@@ -177,6 +177,7 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
                 lshaped.x[:] = lshaped.ξ[:]
                 lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
                 lshaped.Q_history[t] = lshaped.solverdata.Q
+                close(lshaped.cutqueue)
                 map(wait,finished_workers)
                 println("Optimal!")
                 println("Objective value: ", lshaped.Q_history[t])

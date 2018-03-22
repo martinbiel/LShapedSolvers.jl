@@ -134,7 +134,15 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
             println("Solving subproblem: ",subproblem.id)
             cut = subproblem()
             Q::T = cut(x)
-            put!(cuts,(t,Q,cut))
+            try
+                put!(cuts,(t,Q,cut))
+            catch err
+                if err isa InvalidStateException
+                    # Master closed the cut channel
+                    println("Worker finished")
+                    return
+                end
+            end
             println("Subproblem: ",subproblem.id," solved")
         end
     end
