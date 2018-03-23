@@ -70,11 +70,9 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
 
     # Solve sub problems
     for subproblem ∈ lshaped.subproblems
-        println("Solving subproblem: ",subproblem.id)
         cut::SparseHyperPlane{T} = subproblem()
         if !bounded(cut)
-            println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
-            println("======================")
+            warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
             return -Inf
         end
         addcut!(lshaped,cut)
@@ -91,11 +89,9 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::Tim
 
     # Solve sub problems
     for subproblem ∈ lshaped.subproblems
-        println("Solving subproblem: ",subproblem.id)
         @timeit timer "solve" cut::SparseHyperPlane{T} = subproblem()
         if !bounded(cut)
-            println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
-            println("======================")
+            warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
             return -Inf
         end
         @timeit timer "create/add cut" addcut!(lshaped,cut)
@@ -127,7 +123,6 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q
 
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem
-        # println("Optimal with respect to subproblem ", cut.id)
         return false
     end
 
@@ -151,7 +146,6 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
 
     D = D/scaling
 
-    println("Added Feasibility Cut")
     if hastrait(lshaped,IsRegularized)
         push!(lshaped.committee,cut)
     end

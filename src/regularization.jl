@@ -77,14 +77,12 @@ end
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
     # if abs(θ-Q) <= τ*(1+abs(θ))
-    #     println("Exact serious step")
     #     lshaped.ξ[:] = lshaped.x[:]
     #     lshaped.solverdata.Q̃ = Q
     #     lshaped.solverdata.exact_steps += 1
     #     lshaped.solverdata.σ *= σ̅
     #     update_objective!(lshaped)
     if Q + τ*(1+abs(Q)) <= Q̃
-        println("Approximate serious step")
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         if abs(Q - Q̃) <= 0.5*(Q̃-θ)
@@ -93,7 +91,6 @@ end
         end
         lshaped.solverdata.approximate_steps += 1
     else
-        println("Null step")
         lshaped.solverdata.null_steps += 1
         lshaped.solverdata.σ *= 0.5
         lshaped.solverdata.σ = max(σ̲,lshaped.solverdata.σ)
@@ -137,14 +134,12 @@ end
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack γ = lshaped.parameters
     if Q <= Q̃ - γ*abs(Q̃-θ)
-        println("Major step")
         lshaped.solverdata.cΔ = 0
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
         enlarge_trustregion!(lshaped)
         lshaped.solverdata.major_steps += 1
     else
-        println("Minor step")
         reduce_trustregion!(lshaped)
         lshaped.solverdata.minor_steps += 1
     end
@@ -176,7 +171,6 @@ end
 @implement_traitfn function reduce_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     @unpack Q,Q̃,θ = lshaped.solverdata
     ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
-    @show ρ
     if ρ > 0
         lshaped.solverdata.cΔ += 1
     end
@@ -247,8 +241,6 @@ end
     # Solve projection problem
     lshaped.projectionsolver(lshaped.x)
     if status(lshaped.projectionsolver) == :Infeasible
-        println("Projection problem is infeasible, aborting procedure.")
-        println("======================")
         error("Projection problem is infeasible, aborting procedure.")
     end
 

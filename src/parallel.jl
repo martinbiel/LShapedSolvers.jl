@@ -129,25 +129,22 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
     while true
         t::Int = take!(work)
         if t == -1
-            println("Worker finished")
+            # Worker finished
             return
         end
         x::A = fetch(decisions,t)
         update_subproblems!(subproblems,x)
         for subproblem in subproblems
-            #println("Solving subproblem: ",subproblem.id)
             cut = subproblem()
             Q::T = cut(x)
             try
                 put!(cuts,(t,Q,cut))
             catch err
                 if err isa InvalidStateException
-                    # Master closed the cut channel
-                    println("Worker finished")
+                    # Master closed the cut channel. Worker finished
                     return
                 end
             end
-            #println("Subproblem: ",subproblem.id," solved")
         end
     end
 end

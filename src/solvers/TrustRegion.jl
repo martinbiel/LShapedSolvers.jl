@@ -46,6 +46,7 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     # Params
     parameters::TrustRegionParameters{T}
+    progress::ProgressThresh{T}
 
     @implement_trait TrustRegion HasTrustRegion
 
@@ -83,7 +84,9 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                A(fill(-1e10,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               TrustRegionParameters{T}(;kw...))
+                               TrustRegionParameters{T}(;kw...),
+                               ProgressThresh(1.0, "TR L-Shaped Gap "))
+        lshaped.progress.thresh = lshaped.parameters.τ
         init!(lshaped,subsolver)
 
         return lshaped
@@ -92,12 +95,9 @@ end
 TrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = TrustRegion(model,rand(model.numCols),mastersolver,subsolver;kw...)
 
 function (lshaped::TrustRegion)()
-    println("Starting L-Shaped procedure with trust-region")
-    println("======================")
-
-    println("Main loop")
-    println("======================")
-
+    # Reset timer
+    lshaped.progress.tfirst = lshaped.progress.tlast = time()
+    # Start procedure
     while true
         status = iterate!(lshaped)
         if status != :Valid
@@ -109,9 +109,6 @@ function (lshaped::TrustRegion)()
             lshaped.x[:] = lshaped.ξ[:]
             lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
             push!(lshaped.Q_history,lshaped.solverdata.Q)
-            println("Optimal!")
-            println("Objective value: ", calculate_objective_value(lshaped))
-            println("======================")
             return :Optimal
         end
     end
@@ -135,18 +132,15 @@ function iterate!(lshaped::TrustRegion)
         #         push!(lshaped.inactive,constraint)
         #         continue
         #     end
-        #     println("Adding violated constraint to committee")
         #     push!(lshaped.committee,constraint)
         #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
         #     L += 1
         # end
     end
     # Resolve master
-    println("Solving master problem")
     lshaped.mastersolver(lshaped.x)
     if status(lshaped.mastersolver) == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
+        warn("Master is infeasible, aborting procedure.")
         return :Infeasible
     end
     # Update master solution
@@ -156,9 +150,17 @@ function iterate!(lshaped::TrustRegion)
     # if length(lshaped.violating) <= lshaped.nscenarios
     #     queueViolated!(lshaped)
     # end
-    push!(lshaped.Q_history,lshaped.solverdata.Q)
+    @unpack Q,Q̃,θ = lshaped.solverdata
+    push!(lshaped.Q_history,Q)
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
-    push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
-    push!(lshaped.θ_history,lshaped.solverdata.θ)
+    push!(lshaped.Q̃_history,Q̃)
+    push!(lshaped.θ_history,θ)
+    gap = abs(θ-Q)/(1+abs(Q))
+    ProgressMeter.update!(lshaped.progress,gap,
+                          showvalues = [
+                              ("Objective",Q),
+                              ("Gap",gap),
+                              ("Number of cuts",length(lshaped.cuts))
+                          ])
     return :Valid
 end

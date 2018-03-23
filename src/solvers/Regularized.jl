@@ -47,6 +47,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     # Params
     parameters::RegularizedParameters{T}
+    progress::ProgressThresh{T}
 
     @implement_trait Regularized IsRegularized
 
@@ -84,7 +85,9 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               RegularizedParameters{T}(;kw...))
+                               RegularizedParameters{T}(;kw...),
+                               ProgressThresh(1.0, "RD L-Shaped Gap "))
+        lshaped.progress.thresh = lshaped.parameters.τ
         init!(lshaped,subsolver)
 
         return lshaped
@@ -93,12 +96,9 @@ end
 Regularized(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = Regularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::Regularized)()
-    println("Starting L-Shaped procedure with regularized decomposition")
-    println("======================")
-
-    println("Main loop")
-    println("======================")
-
+    # Reset timer
+    lshaped.progress.tfirst = lshaped.progress.tlast = time()
+    # Start procedure
     while true
         status = iterate!(lshaped)
         if status != :Valid
@@ -108,9 +108,6 @@ function (lshaped::Regularized)()
         if check_optimality(lshaped)
             # Optimal
             update_structuredmodel!(lshaped)
-            println("Optimal!")
-            println("Objective value: ", calculate_objective_value(lshaped))
-            println("======================")
             return :Optimal
         end
     end
@@ -126,39 +123,44 @@ function iterate!(lshaped::Regularized)
         # Update the optimization vector
         take_step!(lshaped)
     else
-        # Add at most L violating constraints
-        L = 0
-        while !isempty(lshaped.violating) && L < lshaped.nscenarios
-            constraint = dequeue!(lshaped.violating)
-            if satisfied(lshaped,constraint)
-                push!(lshaped.inactive,constraint)
-                continue
-            end
-            println("Adding violated constraint to committee")
-            push!(lshaped.committee,constraint)
-            addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-            L += 1
-        end
+        # # Add at most L violating constraints
+        # L = 0
+        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
+        #     constraint = dequeue!(lshaped.violating)
+        #     if satisfied(lshaped,constraint)
+        #         push!(lshaped.inactive,constraint)
+        #         continue
+        #     end
+        #     push!(lshaped.committee,constraint)
+        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
+        #     L += 1
+        # end
     end
 
     # Resolve master
-    println("Solving master problem")
     lshaped.mastersolver(lshaped.x)
     if status(lshaped.mastersolver) == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
+        warn("Master is infeasible, aborting procedure.")
         return :Infeasible
     end
     # Update master solution
     update_solution!(lshaped)
     lshaped.solverdata.θ = calculate_estimate(lshaped)
     remove_inactive!(lshaped)
-    if length(lshaped.violating) <= lshaped.nscenarios
-        queueViolated!(lshaped)
-    end
-    push!(lshaped.Q_history,lshaped.solverdata.Q)
-    push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
-    push!(lshaped.θ_history,lshaped.solverdata.θ)
+    # if length(lshaped.violating) <= lshaped.nscenarios
+    #     queueViolated!(lshaped)
+    # end
+    @unpack Q,Q̃,θ = lshaped.solverdata
+    push!(lshaped.Q_history,Q)
+    push!(lshaped.Q̃_history,Q̃)
+    push!(lshaped.θ_history,θ)
     push!(lshaped.σ_history,lshaped.solverdata.σ)
+    gap = abs(θ-Q)/(1+abs(Q))
+    ProgressMeter.update!(lshaped.progress,gap,
+                          showvalues = [
+                              ("Objective",Q),
+                              ("Gap",gap),
+                              ("Number of cuts",length(lshaped.cuts))
+                          ])
     return :Valid
 end

@@ -50,6 +50,7 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
 
     # Params
     parameters::ATrustRegionParameters{T}
+    progress::ProgressThresh{T}
 
     @implement_trait ATrustRegion HasTrustRegion
     @implement_trait ATrustRegion IsParallel
@@ -93,7 +94,9 @@ struct ATrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               ATrustRegionParameters{T}(;kw...))
+                               ATrustRegionParameters{T}(;kw...),
+                               ProgressThresh(1.0, "Asynchronous TR L-Shaped Gap "))
+        lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
         push!(lshaped.Q_history,Inf)
@@ -108,33 +111,26 @@ end
 ATrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ATrustRegion(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
-    println("Starting parallel L-Shaped procedure\n")
-    println("======================")
-
+    # Reset timer
+    lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start workers
     finished_workers = Vector{Future}(nworkers())
-    println("Start workers")
     for w in workers()
-        println("Send work to ",w)
         finished_workers[w-1] = remotecall(work_on_subproblems!,
                                            w,
                                            lshaped.subworkers[w-1],
                                            lshaped.work[w-1],
                                            lshaped.cutqueue,
                                            lshaped.decisions)
-        println("Now ",w, " is working")
     end
-    println("Main loop")
-    println("======================")
+    # Start procedure
     while true
         wait(lshaped.cutqueue)
         while isready(lshaped.cutqueue)
-            println("Cuts are ready")
             # Add new cuts from subworkers
             t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
             if !bounded(cut)
-                println("Subproblem ",cut.id," is unbounded, aborting procedure.")
-                println("======================")
+                warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
                 return :Unbounded
             end
             addcut!(lshaped,cut,Q)
@@ -154,11 +150,9 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
         t = lshaped.solverdata.timestamp
         if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
             # Update the optimization vector
-            println("Solving master problem")
             lshaped.mastersolver(lshaped.x)
             if status(lshaped.mastersolver) == :Infeasible
-                println("Master is infeasible, aborting procedure.")
-                println("======================")
+                warn("Master is infeasible, aborting procedure.")
                 return :Infeasible
             end
 
@@ -179,9 +173,6 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
                 lshaped.Q_history[t] = lshaped.solverdata.Q
                 close(lshaped.cutqueue)
                 map(wait,finished_workers)
-                println("Optimal!")
-                println("Objective value: ", lshaped.Q_history[t])
-                println("======================")
                 return :Optimal
             end
 
@@ -193,12 +184,20 @@ function (lshaped::ATrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
 
             # Prepare memory for next timestamp
             lshaped.solverdata.timestamp += 1
-            push!(lshaped.Q_history,lshaped.solverdata.Q)
-            push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
+            @unpack Q,Q̃,θ = lshaped.solverdata
+            push!(lshaped.Q_history,Q)
+            push!(lshaped.Q̃_history,Q̃)
             push!(lshaped.Δ_history,lshaped.solverdata.Δ)
-            push!(lshaped.θ_history,lshaped.solverdata.θ)
+            push!(lshaped.θ_history,θ)
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
+            gap = abs(θ-Q)/(1+abs(Q))
+            ProgressMeter.update!(lshaped.progress,gap,
+                          showvalues = [
+                              ("Objective",Q),
+                              ("Gap",gap),
+                              ("Number of cuts",length(lshaped.cuts))
+                          ])
         end
     end
 end

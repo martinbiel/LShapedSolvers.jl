@@ -6,6 +6,7 @@ using JuMP
 using StochasticPrograms
 using MathProgBase
 using RecipesBase
+using ProgressMeter
 using TimerOutputs
 
 import Base: show, put!, wait, isready, take!, fetch
