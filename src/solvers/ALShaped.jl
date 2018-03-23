@@ -116,7 +116,7 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             if !bounded(cut)
                 println("Subproblem ",cut.id," is unbounded, aborting procedure.")
                 println("======================")
-                return
+                return :Unbounded
             end
             addcut!(lshaped,cut,Q)
             lshaped.subobjectives[t][cut.id] = Q
@@ -137,7 +137,7 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             if status(lshaped.mastersolver) == :Infeasible
                 println("Master is infeasible, aborting procedure.")
                 println("======================")
-                return
+                return :Infeasible
             end
 
             # Update master solution
@@ -159,7 +159,7 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                 println("Optimal!")
                 println("Objective value: ", lshaped.Q_history[t])
                 println("======================")
-                return
+                return :Optimal
             end
 
             # Send new decision vector to workers

@@ -99,7 +99,10 @@ function (lshaped::TrustRegion)()
     println("======================")
 
     while true
-        iterate!(lshaped)
+        status = iterate!(lshaped)
+        if status != :Valid
+            return status
+        end
 
         if check_optimality(lshaped)
             # Optimal
@@ -109,7 +112,7 @@ function (lshaped::TrustRegion)()
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
-            break
+            return :Optimal
         end
     end
 end
@@ -118,6 +121,9 @@ function iterate!(lshaped::TrustRegion)
     if isempty(lshaped.violating)
         # Resolve all subproblems at the current optimal solution
         lshaped.solverdata.Q = resolve_subproblems!(lshaped)
+        if lshaped.solverdata.Q == -Inf
+            return :Unbounded
+        end
         # Update the optimization vector
         take_step!(lshaped)
     else
@@ -141,7 +147,7 @@ function iterate!(lshaped::TrustRegion)
     if status(lshaped.mastersolver) == :Infeasible
         println("Master is infeasible, aborting procedure.")
         println("======================")
-        return
+        return :Infeasible
     end
     # Update master solution
     update_solution!(lshaped)
@@ -154,5 +160,5 @@ function iterate!(lshaped::TrustRegion)
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
     push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
     push!(lshaped.θ_history,lshaped.solverdata.θ)
-    nothing
+    return :Valid
 end

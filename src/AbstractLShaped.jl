@@ -75,7 +75,7 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
         if !bounded(cut)
             println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
             println("======================")
-            return
+            return -Inf
         end
         addcut!(lshaped,cut)
         lshaped.subobjectives[cut.id] = cut(lshaped.x)
@@ -96,7 +96,7 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::Tim
         if !bounded(cut)
             println("Subproblem ",subproblem.id," is unbounded, aborting procedure.")
             println("======================")
-            return
+            return -Inf
         end
         @timeit timer "create/add cut" addcut!(lshaped,cut)
     end

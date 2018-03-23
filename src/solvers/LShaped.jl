@@ -74,7 +74,10 @@ function (lshaped::LShaped)()
     println("======================")
 
     while true
-        iterate!(lshaped)
+        status = iterate!(lshaped)
+        if status != :Valid
+            return status
+        end
 
         if check_optimality(lshaped)
             # Optimal
@@ -83,7 +86,7 @@ function (lshaped::LShaped)()
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
-            break
+            return :Optimal
         end
     end
 end
@@ -96,7 +99,10 @@ function (lshaped::LShaped)(timer::TimerOutput)
     println("======================")
 
     while true
-        @timeit timer "Iterate" iterate!(lshaped,timer)
+        @timeit timer "Iterate" status = iterate!(lshaped,timer)
+        if status != :Valid
+            return status
+        end
 
         @timeit timer "Check optimality" if check_optimality(lshaped)
             # Optimal
@@ -104,7 +110,7 @@ function (lshaped::LShaped)(timer::TimerOutput)
             println("Optimal!")
             println("Objective value: ", calculate_objective_value(lshaped))
             println("======================")
-            break
+            return :Optimal
         end
     end
 end
@@ -112,6 +118,9 @@ end
 function iterate!(lshaped::LShaped)
     # Resolve all subproblems at the current optimal solution
     Q = resolve_subproblems!(lshaped)
+    if Q == -Inf
+        return :Unbounded
+    end
     push!(lshaped.Q_history,Q)
 
     # Resolve master
@@ -120,7 +129,7 @@ function iterate!(lshaped::LShaped)
     if status(lshaped.mastersolver) == :Infeasible
         println("Master is infeasible, aborting procedure.")
         println("======================")
-        return
+        return :Infeasible
     end
     # Update master solution
     update_solution!(lshaped)
@@ -128,12 +137,15 @@ function iterate!(lshaped::LShaped)
     push!(lshaped.θ_history,θ)
     @pack lshaped.solverdata = Q,θ
     lshaped.solverdata.iterations += 1
-    nothing
+    return :Valid
 end
 
 function iterate!(lshaped::LShaped,timer::TimerOutput)
     # Resolve all subproblems at the current optimal solution
     @timeit timer "Subproblems" Q = resolve_subproblems!(lshaped,timer)
+    if Q == -Inf
+        return :Unbounded
+    end
     push!(lshaped.Q_history,Q)
 
     # Resolve master
@@ -142,10 +154,10 @@ function iterate!(lshaped::LShaped,timer::TimerOutput)
     if status(lshaped.mastersolver) == :Infeasible
         println("Master is infeasible, aborting procedure.")
         println("======================")
-        return
+        return :Infeasible
     end
     # Update master solution
     update_solution!(lshaped)
     push!(lshaped.θ_history,calculate_estimate(lshaped))
-    nothing
+    return :Valid
 end

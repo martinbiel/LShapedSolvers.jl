@@ -20,12 +20,16 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; cr
     end
     if solver.variant == :ls
         return LShaped(stochasticprogram,x₀,solver.lpsolver,subsolver)
-    elseif solver.variant == :pls
-        return PLShaped(stochasticprogram,x₀,solver.lpsolver,subsolver)
+    elseif solver.variant == :als
+        return ALShaped(stochasticprogram,x₀,solver.lpsolver,subsolver)
     elseif solver.variant == :rd
         return Regularized(stochasticprogram,x₀,solver.lpsolver,subsolver)
+    elseif solver.variant == :ard
+        return ARegularized(stochasticprogram,x₀,solver.lpsolver,subsolver)
     elseif solver.variant == :tr
         return TrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver)
+    elseif solver.variant == :atr
+        return ATrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver)
     elseif solver.variant == :lv
         return LevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver)
     else
@@ -34,7 +38,7 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; cr
 end
 
 function optimize_structured!(lshaped::AbstractLShapedSolver)
-    lshaped()
+    return lshaped()
 end
 
 function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.Model)
