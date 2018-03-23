@@ -218,7 +218,6 @@ end
 @implement_traitfn function reduce_trustregion!(lshaped::ATrustRegion,HasTrustRegion)
     @unpack Q,Q̃,θ = lshaped.solverdata
     ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
-    @show ρ
     if ρ > 0
         lshaped.solverdata.cΔ += 1
     end
