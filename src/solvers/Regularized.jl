@@ -14,6 +14,7 @@ end
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
+    log::Bool = true
 end
 
 struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -162,11 +163,13 @@ function iterate!(lshaped::Regularized)
     push!(lshaped.θ_history,θ)
     push!(lshaped.σ_history,lshaped.solverdata.σ)
     gap = abs(θ-Q)/(1+abs(Q))
-    ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+    if lshaped.parameters.log
+        ProgressMeter.update!(lshaped.progress,gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
     return :Valid
 end

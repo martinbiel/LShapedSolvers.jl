@@ -7,6 +7,7 @@ end
 @with_kw struct DLShapedParameters{T <: Real}
     κ::T = 0.3
     τ::T = 1e-6
+    log::Bool = true
 end
 
 struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -77,7 +78,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DLShapedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous L-Shaped Gap "))
+                               ProgressThresh(1.0, "Distributed L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
@@ -166,12 +167,14 @@ function (lshaped::DLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
             gap = abs(θ-Q)/(1+abs(Q))
-            ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+            if lshaped.parameters.log
+                ProgressMeter.update!(lshaped.progress,gap,
+                                      showvalues = [
+                                          ("Objective",Q),
+                                          ("Gap",gap),
+                                          ("Number of cuts",length(lshaped.cuts))
+                                      ])
+            end
         end
     end
 end

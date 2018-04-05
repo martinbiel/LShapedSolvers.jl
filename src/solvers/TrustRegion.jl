@@ -13,6 +13,7 @@ end
     γ::T = 1e-4
     Δ = 1.0
     Δ̅::T = 1.0
+    log::Bool = true
 end
 
 struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -160,11 +161,13 @@ function iterate!(lshaped::TrustRegion)
     push!(lshaped.Q̃_history,Q̃)
     push!(lshaped.θ_history,θ)
     gap = abs(θ-Q)/(1+abs(Q))
-    ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+    if lshaped.parameters.log
+        ProgressMeter.update!(lshaped.progress,gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
     return :Valid
 end

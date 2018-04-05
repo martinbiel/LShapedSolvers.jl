@@ -6,6 +6,7 @@ end
 
 @with_kw struct LShapedParameters{T <: Real}
     τ::T = 1e-6
+    log::Bool = true
 end
 
 struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -129,12 +130,14 @@ function iterate!(lshaped::LShaped)
     @pack lshaped.solverdata = Q,θ
     lshaped.solverdata.iterations += 1
     gap = abs(θ-Q)/(1+abs(Q))
-    ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+    if lshaped.parameters.log
+        ProgressMeter.update!(lshaped.progress,gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
     return :Valid
 end
 

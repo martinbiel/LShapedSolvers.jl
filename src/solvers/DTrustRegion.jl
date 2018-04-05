@@ -15,6 +15,7 @@ end
     γ::T = 1e-4
     Δ = 1.0
     Δ̅::T = 1.0
+    log::Bool = true
 end
 
 struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -95,7 +96,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DTrustRegionParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous TR L-Shaped Gap "))
+                               ProgressThresh(1.0, "Distributed TR L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
@@ -192,12 +193,14 @@ function (lshaped::DTrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
             gap = abs(θ-Q)/(1+abs(Q))
-            ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+            if lshaped.parameters.log
+                ProgressMeter.update!(lshaped.progress,gap,
+                                      showvalues = [
+                                          ("Objective",Q),
+                                          ("Gap",gap),
+                                          ("Number of cuts",length(lshaped.cuts))
+                                      ])
+            end
         end
     end
 end

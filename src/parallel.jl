@@ -204,8 +204,16 @@ function fill_subproblems!(subworker::SubWorker{T,A,S},
         snrows, sncols = length(submodel.linconstr), submodel.numCols
         subproblem = subproblems[i]
         submodel.colVal = copy(subproblem.y)
-        submodel.redCosts = getreducedcosts(subproblem.solver.lqmodel)
-        submodel.linconstrDuals = getconstrduals(subproblem.solver.lqmodel)
+        submodel.redCosts = try
+            getreducedcosts(subproblem.solver.lqmodel)[1:sncols]
+        catch
+            fill(NaN, sncols)
+        end
+        submodel.linconstrDuals = try
+            getconstrduals(subproblem.solver.lqmodel)[1:snrows]
+        catch
+            fill(NaN, snrows)
+        end
         submodel.objVal = getobjval(subproblem.solver)
     end
 end

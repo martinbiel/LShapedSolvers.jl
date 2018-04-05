@@ -9,7 +9,8 @@ end
 @with_kw struct DLevelSetParameters{T <: Real}
     κ::T = 0.3
     τ::T = 1e-6
-    λ::T = 1.0
+    λ::T = 0.5
+    log::Bool = true
 end
 
 struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -93,7 +94,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DLevelSetParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous LV L-Shaped Gap "))
+                               ProgressThresh(1.0, "Distributed Leveled L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
@@ -174,6 +175,7 @@ function (lshaped::DLevelSet{T,A,M,S})() where {T <: Real, A <: AbstractVector, 
             end
 
             project!(lshaped)
+            lshaped.ξ[:] = lshaped.x[:]
 
             # Send new decision vector to workers
             put!(lshaped.decisions,t+1,lshaped.x)
@@ -190,12 +192,14 @@ function (lshaped::DLevelSet{T,A,M,S})() where {T <: Real, A <: AbstractVector, 
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
             gap = abs(θ-Q)/(1+abs(Q))
-            ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+            if lshaped.parameters.log
+                ProgressMeter.update!(lshaped.progress,gap,
+                                      showvalues = [
+                                          ("Objective",Q),
+                                          ("Gap",gap),
+                                          ("Number of cuts",length(lshaped.cuts))
+                                      ])
+            end
         end
     end
 end

@@ -16,6 +16,7 @@ end
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
+    log::Bool = true
 end
 
 struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -103,7 +104,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DRegularizedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous RD L-Shaped Gap "))
+                               ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
@@ -200,12 +201,14 @@ function (lshaped::DRegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
             gap = abs(θ-Q)/(1+abs(Q))
-            ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+            if lshaped.parameters.log
+                ProgressMeter.update!(lshaped.progress,gap,
+                                      showvalues = [
+                                          ("Objective",Q),
+                                          ("Gap",gap),
+                                          ("Number of cuts",length(lshaped.cuts))
+                                      ])
+            end
         end
     end
 end

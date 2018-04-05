@@ -7,7 +7,8 @@ end
 
 @with_kw struct LevelSetParameters{T <: Real}
     τ::T = 1e-6
-    λ::T = 1.0
+    λ::T = 0.5
+    log::Bool = true
 end
 
 struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -87,7 +88,7 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                LevelSetParameters{T}(;kw...),
-                               ProgressThresh(1.0, "LV L-Shaped Gap "))
+                               ProgressThresh(1.0, "Leveled L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         init!(lshaped,subsolver)
 
@@ -160,11 +161,13 @@ function iterate!(lshaped::LevelSet)
     push!(lshaped.Q̃_history,Q̃)
     push!(lshaped.θ_history,θ)
     gap = abs(θ-Q)/(1+abs(Q))
-    ProgressMeter.update!(lshaped.progress,gap,
-                          showvalues = [
-                              ("Objective",Q),
-                              ("Gap",gap),
-                              ("Number of cuts",length(lshaped.cuts))
-                          ])
+    if lshaped.parameters.log
+        ProgressMeter.update!(lshaped.progress,gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
     return :Valid
 end

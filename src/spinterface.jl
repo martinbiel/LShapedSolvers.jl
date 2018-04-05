@@ -48,8 +48,16 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
     stochasticprogram.objVal = lshaped.solverdata.Q
     stochasticprogram.colVal = copy(lshaped.x)
-    stochasticprogram.redCosts = getreducedcosts(lshaped.mastersolver.lqmodel)
-    stochasticprogram.linconstrDuals = getconstrduals(lshaped.mastersolver.lqmodel)
+    stochasticprogram.redCosts = try
+        getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
+    catch
+        fill(NaN, ncols)
+    end
+    stochasticprogram.linconstrDuals = try
+        getconstrduals(lshaped.mastersolver.lqmodel)[1:nrows]
+    catch
+        fill(NaN, nrows)
+    end
 
     # Second stage
     fill_subproblems!(lshaped,scenarioproblems(stochasticprogram))
@@ -60,8 +68,16 @@ function fill_subproblems!(lshaped::AbstractLShapedSolver,scenarioproblems::Stoc
         snrows, sncols = length(submodel.linconstr), submodel.numCols
         subproblem = lshaped.subproblems[i]
         submodel.colVal = copy(subproblem.y)
-        submodel.redCosts = getreducedcosts(subproblem.solver.lqmodel)
-        submodel.linconstrDuals = getconstrduals(subproblem.solver.lqmodel)
+        submodel.redCosts = try
+            getreducedcosts(subproblem.solver.lqmodel)[1:sncols]
+        catch
+            fill(NaN, sncols)
+        end
+        submodel.linconstrDuals = try
+            getconstrduals(subproblem.solver.lqmodel)[1:snrows]
+        catch
+            fill(NaN, snrows)
+        end
         submodel.objVal = getobjval(subproblem.solver)
     end
 end
