@@ -111,7 +111,9 @@ function (lshaped::Regularized)()
 
         if check_optimality(lshaped)
             # Optimal
-            update_structuredmodel!(lshaped)
+            lshaped.x[:] = lshaped.ξ[:]
+            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
             return :Optimal
         end
     end

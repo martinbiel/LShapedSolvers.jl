@@ -101,8 +101,8 @@ function (lshaped::LShaped)(timer::TimerOutput)
 
         @timeit timer "Check optimality" if check_optimality(lshaped)
             # Optimal
-            update_structuredmodel!(lshaped)
-            println("======================")
+            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
             return :Optimal
         end
     end

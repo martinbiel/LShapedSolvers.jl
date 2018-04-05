@@ -38,6 +38,7 @@ include("solvers/ARegularized.jl")
 include("solvers/TrustRegion.jl")
 include("solvers/ATrustRegion.jl")
 include("solvers/LevelSet.jl")
+include("solvers/ALevelSet.jl")
 include("spinterface.jl")
 
 end # module

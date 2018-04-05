@@ -42,6 +42,7 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
 
     # Params
     parameters::LevelSetParameters{T}
+    progress::ProgressThresh{T}
 
     @implement_trait LevelSet HasLevels
 
@@ -81,7 +82,9 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               LevelSetParameters{T}(;kw...))
+                               LevelSetParameters{T}(;kw...),
+                               ProgressThresh(1.0, "LV L-Shaped Gap "))
+        lshaped.progress.thresh = lshaped.parameters.τ
         init!(lshaped,subsolver)
 
         return lshaped
@@ -90,22 +93,20 @@ end
 LevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::LevelSet)()
-    println("Starting L-Shaped procedure with level sets")
-    println("======================")
-
-    println("Main loop")
-    println("======================")
-
+    # Reset timer
+    lshaped.progress.tfirst = lshaped.progress.tlast = time()
     while true
-        iterate!(lshaped)
+        status = iterate!(lshaped)
+        if status != :Valid
+            return status
+        end
 
         if check_optimality(lshaped)
             # Optimal
-            update_structuredmodel!(lshaped)
-            println("Optimal!")
-            println("Objective value: ", calculate_objective_value(lshaped))
-            println("======================")
-            break
+            lshaped.x[:] = lshaped.ξ[:]
+            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
+            return :Optimal
         end
 
         project!(lshaped)
@@ -117,6 +118,9 @@ function iterate!(lshaped::LevelSet)
     if isempty(lshaped.violating)
         # Resolve all subproblems at the current optimal solution
         lshaped.solverdata.Q = resolve_subproblems!(lshaped)
+        if lshaped.solverdata.Q == -Inf
+            return :Unbounded
+        end
         # Update the optimization vector
         take_step!(lshaped)
     else
@@ -134,23 +138,29 @@ function iterate!(lshaped::LevelSet)
         #     L += 1
         # end
     end
-
     # Resolve master
-    println("Solving master problem")
     lshaped.mastersolver(lshaped.x)
     if status(lshaped.mastersolver) == :Infeasible
-        println("Master is infeasible, aborting procedure.")
-        println("======================")
-        return
+        warn("Master is infeasible, aborting procedure.")
+        return :Infeasible
     end
+    # Update master solution
     update_solution!(lshaped)
     lshaped.solverdata.θ = calculate_estimate(lshaped)
     # remove_inactive!(lshaped)
     # if length(lshaped.violating) <= lshaped.nscenarios
     #     queueViolated!(lshaped)
     # end
-    push!(lshaped.Q_history,lshaped.solverdata.Q)
-    push!(lshaped.Q̃_history,lshaped.solverdata.Q̃)
-    push!(lshaped.θ_history,lshaped.solverdata.θ)
-    nothing
+    @unpack Q,Q̃,θ = lshaped.solverdata
+    push!(lshaped.Q_history,Q)
+    push!(lshaped.Q̃_history,Q̃)
+    push!(lshaped.θ_history,θ)
+    gap = abs(θ-Q)/(1+abs(Q))
+    ProgressMeter.update!(lshaped.progress,gap,
+                          showvalues = [
+                              ("Objective",Q),
+                              ("Gap",gap),
+                              ("Number of cuts",length(lshaped.cuts))
+                          ])
+    return :Valid
 end
