@@ -9,7 +9,13 @@
         m = lshaped.structuredmodel
         for i = 1:lshaped.nscenarios
             y₀ = convert(A,rand(subproblem(m,i).numCols))
-            push!(lshaped.subproblems,SubProblem(subproblem(m,i),m,i,probability(m,i),copy(lshaped.x),y₀,subsolver))
+            push!(lshaped.subproblems,SubProblem(subproblem(m,i),
+                                                 parentmodel(scenarioproblems(m)),
+                                                 i,
+                                                 probability(m,i),
+                                                 copy(lshaped.x),
+                                                 y₀,
+                                                 subsolver))
         end
         lshaped
     end
@@ -17,38 +23,28 @@
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
         # Partitioning
-        (jobLength,extra) = divrem(lshaped.nscenarios,nworkers())
+        (jobsize,extra) = divrem(lshaped.nscenarios,nworkers())
         # One extra to guarantee coverage
         if extra > 0
-            jobLength += 1
+            jobsize += 1
         end
         # Load initial decision
         put!(lshaped.decisions,1,lshaped.x)
         # Create subproblems on worker processes
         m = lshaped.structuredmodel
         start = 1
-        stop = jobLength
+        stop = jobsize
         finished_workers = Vector{Future}(nworkers())
         for w in workers()
             lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
             put!(lshaped.work[w-1],1)
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
-            submodels = [subproblem(m,i) for i = start:stop]
-            πs = [probability(m,i) for i = start:stop]
-            finished_workers[w-1] = remotecall(init_subworker!,
-                                               w,
-                                               lshaped.subworkers[w-1],
-                                               m,
-                                               submodels,
-                                               πs,
-                                               lshaped.x,
-                                               subsolver,
-                                               collect(start:stop))
+            finished_workers[w-1] = load_worker!(scenarioproblems(m),w,lshaped.subworkers[w-1],lshaped.x,start,stop,subsolver)
             if start > lshaped.nscenarios
                 continue
             end
-            start += jobLength
-            stop += jobLength
+            start += jobsize
+            stop += jobsize
             stop = min(stop,lshaped.nscenarios)
         end
         map(wait,finished_workers)
@@ -101,10 +97,47 @@ function wait(channel::DecisionChannel, t)
 end
 
 SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
+ScenarioProblems{D,SD,S} = RemoteChannel{Channel{StochasticPrograms.ScenarioProblems{D,SD,S}}}
 Work = RemoteChannel{Channel{Int}}
 Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
+
+function load_worker!(sp::StochasticPrograms.ScenarioProblems,
+                      w::Integer,
+                      worker::SubWorker,
+                      x::AbstractVector,
+                      start::Integer,
+                      stop::Integer,
+                      subsolver::AbstractMathProgSolver)
+    problems = [sp.problems[i] for i = start:stop]
+    πs = [probability(sp.scenariodata[i]) for i = start:stop]
+    return remotecall(init_subworker!,
+                      w,
+                      worker,
+                      sp.parent,
+                      problems,
+                      πs,
+                      x,
+                      subsolver,
+                      collect(start:stop))
+end
+
+function load_worker!(sp::StochasticPrograms.DScenarioProblems,
+                      w::Integer,
+                      worker::SubWorker,
+                      x::AbstractVector,
+                      start::Integer,
+                      stop::Integer,
+                      subsolver::AbstractMathProgSolver)
+    return remotecall(init_subworker!,
+                      w,
+                      worker,
+                      sp[w-1],
+                      x,
+                      subsolver,
+                      collect(start:stop))
+end
 
 function init_subworker!(subworker::SubWorker{T,A,S},
                          parent::JuMP.Model,
@@ -117,6 +150,20 @@ function init_subworker!(subworker::SubWorker{T,A,S},
     for (i,id) = enumerate(ids)
         y₀ = convert(A,rand(submodels[i].numCols))
         subproblems[i] = SubProblem(submodels[i],parent,id,πs[i],x,y₀,subsolver)
+    end
+    put!(subworker,subproblems)
+end
+
+function init_subworker!(subworker::SubWorker{T,A,S},
+                         scenarioproblems::ScenarioProblems,
+                         x::A,
+                         subsolver::AbstractMathProgSolver,
+                         ids::Vector{Int}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    sp = fetch(scenarioproblems)
+    subproblems = Vector{SubProblem{T,A,S}}(length(ids))
+    for (i,id) = enumerate(ids)
+        y₀ = convert(A,rand(sp.problems[i].numCols))
+        subproblems[i] = SubProblem(sp.problems[i],sp.parent,id,probability(sp.scenariodata[i]),x,y₀,subsolver)
     end
     put!(subworker,subproblems)
 end
