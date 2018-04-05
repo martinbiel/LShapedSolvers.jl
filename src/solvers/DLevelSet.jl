@@ -1,36 +1,27 @@
-@with_kw mutable struct ARegularizedData{T <: Real}
+@with_kw mutable struct DLevelSetData{T <: Real}
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
-    σ::T = 1.0
-    exact_steps::Int = 0
-    approximate_steps::Int = 0
-    null_steps::Int = 0
+    i::Int = 1
     timestamp::Int = 1
 end
 
-@with_kw struct ARegularizedParameters{T <: Real}
+@with_kw struct DLevelSetParameters{T <: Real}
     κ::T = 0.3
     τ::T = 1e-6
-    γ::T = 0.9
-    σ::T = 1.0
-    σ̅::T = 4.0
-    σ̲::T = 0.5
+    λ::T = 1.0
 end
 
-struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
-    solverdata::ARegularizedData{T}
+    solverdata::DLevelSetData{T}
 
     # Master
     mastersolver::M
+    projectionsolver::M
     c::A
     x::A
     Q_history::A
-
-    committee::Vector{SparseHyperPlane{T}}
-    inactive::Vector{SparseHyperPlane{T}}
-    violating::PriorityQueue{SparseHyperPlane{T},T}
 
     # Subproblems
     nscenarios::Int
@@ -43,10 +34,10 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
 
-    # Trust region
+    # Regularizer
     ξ::A
     Q̃_history::A
-    σ_history::A
+    levels::A
 
     # Cuts
     θs::A
@@ -54,16 +45,16 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     θ_history::A
 
     # Params
-    parameters::ARegularizedParameters{T}
+    parameters::DLevelSetParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait ARegularized IsRegularized
-    @implement_trait ARegularized IsParallel
+    @implement_trait DLevelSet HasLevels
+    @implement_trait DLevelSet IsParallel
 
-    function (::Type{ARegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{DLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() == 1
             warn("There are no worker processes, defaulting to serial version of algorithm")
-            return Regularized(model,ξ₀,mastersolver,subsolver; kw...)
+            return LevelSet(model,ξ₀,mastersolver,subsolver; kw...)
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
@@ -76,19 +67,18 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         A = typeof(x₀_)
 
         msolver = LQSolver(model,mastersolver)
+        psolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               ARegularizedData{T}(),
+                               DLevelSetData{T}(),
                                msolver,
+                               psolver,
                                c_,
                                x₀_,
                                A(),
-                               convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
-                               Vector{SparseHyperPlane{T}}(),
-                               PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{A}(),
                                Vector{Int}(),
@@ -102,8 +92,8 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               ARegularizedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous RD L-Shaped Gap "))
+                               DLevelSetParameters{T}(;kw...),
+                               ProgressThresh(1.0, "Asynchronous LV L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
@@ -116,9 +106,9 @@ struct ARegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         return lshaped
     end
 end
-ARegularized(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ARegularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DLevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = DLevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function (lshaped::DLevelSet{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start workers
@@ -170,7 +160,6 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
             lshaped.Q̃_history[t] = lshaped.solverdata.Q̃
-            lshaped.σ_history[t] = lshaped.solverdata.σ
             lshaped.θ_history[t] = θ
 
             if check_optimality(lshaped)
@@ -184,6 +173,8 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
                 return :Optimal
             end
 
+            project!(lshaped)
+
             # Send new decision vector to workers
             put!(lshaped.decisions,t+1,lshaped.x)
             for w in lshaped.work
@@ -195,7 +186,6 @@ function (lshaped::ARegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             @unpack Q,Q̃,θ = lshaped.solverdata
             push!(lshaped.Q_history,Q)
             push!(lshaped.Q̃_history,Q̃)
-            push!(lshaped.σ_history,lshaped.solverdata.σ)
             push!(lshaped.θ_history,θ)
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)

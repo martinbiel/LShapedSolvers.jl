@@ -35,7 +35,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
     function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() > 1
             warn("There are worker processes, defaulting to distributed version of algorithm")
-            return ALShaped(model,x₀,mastersolver,subsolver; kw...)
+            return DLShaped(model,x₀,mastersolver,subsolver; kw...)
         end
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")

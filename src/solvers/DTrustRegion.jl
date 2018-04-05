@@ -1,17 +1,25 @@
-@with_kw mutable struct ALShapedData{T <: Real}
+@with_kw mutable struct DTrustRegionData{T <: Real}
     Q::T = 1e10
+    Q̃::T = 1e10
     θ::T = -1e10
+    Δ::T = 1.0
+    cΔ::Int = 0
+    major_steps::Int = 0
+    minor_steps::Int = 0
     timestamp::Int = 1
 end
 
-@with_kw struct ALShapedParameters{T <: Real}
+@with_kw struct DTrustRegionParameters{T <: Real}
     κ::T = 0.3
     τ::T = 1e-6
+    γ::T = 1e-4
+    Δ = 1.0
+    Δ̅::T = 1.0
 end
 
-struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
-    solverdata::ALShapedData{T}
+    solverdata::DTrustRegionData{T}
 
     # Master
     mastersolver::M
@@ -30,29 +38,36 @@ struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
 
+    # Trust region
+    ξ::A
+    Q̃_history::A
+    Δ_history::A
+
     # Cuts
     θs::A
     cuts::Vector{SparseHyperPlane{T}}
     θ_history::A
 
     # Params
-    parameters::ALShapedParameters{T}
+    parameters::DTrustRegionParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait ALShaped IsParallel
+    @implement_trait DTrustRegion HasTrustRegion
+    @implement_trait DTrustRegion IsParallel
 
-    function (::Type{ALShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{DTrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() == 1
             warn("There are no worker processes, defaulting to serial version of algorithm")
-            return LShaped(model,x₀,mastersolver,subsolver; kw...)
+            return TrustRegion(model,ξ₀,mastersolver,subsolver; kw...)
         end
-        length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
+        length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
 
-        T = promote_type(eltype(x₀),Float32)
+        T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
-        x₀_ = convert(AbstractVector{T},copy(x₀))
+        x₀_ = convert(AbstractVector{T},copy(ξ₀))
+        ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(x₀_)
 
         msolver = LQSolver(model,mastersolver)
@@ -61,7 +76,7 @@ struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               ALShapedData{T}(),
+                               DTrustRegionData{T}(),
                                msolver,
                                c_,
                                x₀_,
@@ -73,15 +88,19 @@ struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                Vector{Work}(nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                               ξ₀_,
+                               A(),
+                               A(),
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               ALShapedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Asynchronous L-Shaped Gap "))
+                               DTrustRegionParameters{T}(;kw...),
+                               ProgressThresh(1.0, "Asynchronous TR L-Shaped Gap "))
         lshaped.progress.thresh = lshaped.parameters.τ
         push!(lshaped.subobjectives,zeros(n))
         push!(lshaped.finished,0)
         push!(lshaped.Q_history,Inf)
+        push!(lshaped.Q̃_history,Inf)
         push!(lshaped.θ_history,-Inf)
 
         init!(lshaped,subsolver)
@@ -89,9 +108,9 @@ struct ALShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         return lshaped
     end
 end
-ALShaped(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = ALShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DTrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = DTrustRegion(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function (lshaped::DTrustRegion{T,A,M,S})() where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start workers
@@ -122,12 +141,15 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                 if lshaped.Q_history[t] <= lshaped.solverdata.Q
                     lshaped.solverdata.Q = lshaped.Q_history[t]
                 end
+                lshaped.x[:] = fetch(lshaped.decisions,t)
+                take_step!(lshaped)
             end
         end
 
         # Resolve master
         t = lshaped.solverdata.timestamp
         if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
+            # Update the optimization vector
             lshaped.mastersolver(lshaped.x)
             if status(lshaped.mastersolver) == :Infeasible
                 warn("Master is infeasible, aborting procedure.")
@@ -136,19 +158,21 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
 
             # Update master solution
             update_solution!(lshaped)
+
             θ = calculate_estimate(lshaped)
             lshaped.solverdata.θ = θ
-
+            lshaped.Q̃_history[t] = lshaped.solverdata.Q̃
+            lshaped.Δ_history[t] = lshaped.solverdata.Δ
             lshaped.θ_history[t] = θ
+
             if check_optimality(lshaped)
                 # Optimal
                 map(w->put!(w,-1),lshaped.work)
+                lshaped.x[:] = lshaped.ξ[:]
                 lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
                 lshaped.Q_history[t] = lshaped.solverdata.Q
-                @async begin
-                    close(lshaped.cutqueue)
-                    map(wait,finished_workers)
-                end
+                close(lshaped.cutqueue)
+                map(wait,finished_workers)
                 return :Optimal
             end
 
@@ -160,8 +184,10 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
 
             # Prepare memory for next timestamp
             lshaped.solverdata.timestamp += 1
-            @unpack Q,θ = lshaped.solverdata
+            @unpack Q,Q̃,θ = lshaped.solverdata
             push!(lshaped.Q_history,Q)
+            push!(lshaped.Q̃_history,Q̃)
+            push!(lshaped.Δ_history,lshaped.solverdata.Δ)
             push!(lshaped.θ_history,θ)
             push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
             push!(lshaped.finished,0)
@@ -173,5 +199,35 @@ function (lshaped::ALShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
                               ("Number of cuts",length(lshaped.cuts))
                           ])
         end
+    end
+end
+
+@implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
+    @unpack Q,Q̃,θ = lshaped.solverdata
+    @unpack τ,Δ̅ = lshaped.parameters
+    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
+        # Enlarge the trust-region radius
+        lshaped.solverdata.Δ = max(lshaped.solverdata.Δ,min(Δ̅,2*lshaped.solverdata.Δ))
+        set_trustregion!(lshaped)
+        return true
+    else
+        return false
+    end
+end
+
+@implement_traitfn function reduce_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
+    @unpack Q,Q̃,θ = lshaped.solverdata
+    ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
+    if ρ > 0
+        lshaped.solverdata.cΔ += 1
+    end
+    if ρ > 3 || (lshaped.solverdata.cΔ >= 3 && 1 < ρ <= 3)
+        # Reduce the trust-region radius
+        lshaped.solverdata.cΔ = 0
+        lshaped.solverdata.Δ = min(lshaped.solverdata.Δ,(1/min(ρ,4))*lshaped.solverdata.Δ)
+        set_trustregion!(lshaped)
+        return true
+    else
+        return false
     end
 end

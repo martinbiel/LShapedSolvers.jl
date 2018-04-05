@@ -47,6 +47,10 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     @implement_trait LevelSet HasLevels
 
     function (::Type{LevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+        if nworkers() > 1
+            warn("There are worker processes, defaulting to distributed version of algorithm")
+            return DLevelSet(model,ξ₀,mastersolver,subsolver; kw...)
+        end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
 

@@ -196,6 +196,20 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
     end
 end
 
+function fill_subproblems!(subworker::SubWorker{T,A,S},
+                           scenarioproblems::ScenarioProblems) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    sp = fetch(scenarioproblems)
+    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    for (i,submodel) in enumerate(sp.problems)
+        snrows, sncols = length(submodel.linconstr), submodel.numCols
+        subproblem = subproblems[i]
+        submodel.colVal = copy(subproblem.y)
+        submodel.redCosts = getreducedcosts(subproblem.solver.lqmodel)
+        submodel.linconstrDuals = getconstrduals(subproblem.solver.lqmodel)
+        submodel.objVal = getobjval(subproblem.solver)
+    end
+end
+
 function calculate_subobjective(subworker::SubWorker{T,A,S},
                                 x::A) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)

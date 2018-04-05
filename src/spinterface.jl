@@ -19,19 +19,21 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; cr
         rand(stochasticprogram.numCols)
     end
     if solver.variant == :ls
-        return LShaped(stochasticprogram,x₀,solver.lpsolver,subsolver)
-    elseif solver.variant == :als
-        return ALShaped(stochasticprogram,x₀,solver.lpsolver,subsolver)
+        return LShaped(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+    elseif solver.variant == :dls
+        return DLShaped(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
     elseif solver.variant == :rd
-        return Regularized(stochasticprogram,x₀,solver.lpsolver,subsolver)
-    elseif solver.variant == :ard
-        return ARegularized(stochasticprogram,x₀,solver.lpsolver,subsolver)
+        return Regularized(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+    elseif solver.variant == :drd
+        return DRegularized(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
     elseif solver.variant == :tr
-        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver)
-    elseif solver.variant == :atr
-        return ATrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver)
+        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+    elseif solver.variant == :dtr
+        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
     elseif solver.variant == :lv
-        return LevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver)
+        return LevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+    elseif solver.variant == :dlv
+        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end
@@ -44,13 +46,17 @@ end
 function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.Model)
     # First stage
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
-    stochasticprogram.objVal = calculate_objective_value(lshaped)
+    stochasticprogram.objVal = lshaped.solverdata.Q
     stochasticprogram.colVal = copy(lshaped.x)
     stochasticprogram.redCosts = getreducedcosts(lshaped.mastersolver.lqmodel)
     stochasticprogram.linconstrDuals = getconstrduals(lshaped.mastersolver.lqmodel)
 
     # Second stage
-    for (i,submodel) in enumerate(subproblems(stochasticprogram))
+    fill_subproblems!(lshaped,scenarioproblems(stochasticprogram))
+end
+
+function fill_subproblems!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems)
+    for (i,submodel) in enumerate(scenarioproblems.problems)
         snrows, sncols = length(submodel.linconstr), submodel.numCols
         subproblem = lshaped.subproblems[i]
         submodel.colVal = copy(subproblem.y)
@@ -58,4 +64,15 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
         submodel.linconstrDuals = getconstrduals(subproblem.solver.lqmodel)
         submodel.objVal = getobjval(subproblem.solver)
     end
+end
+
+function fill_subproblems!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems)
+    finished_workers = Vector{Future}(length(scenarioproblems))
+    for w = 1:length(scenarioproblems)
+        finished_workers[w] = remotecall(fill_subproblems!,
+                                         w+1,
+                                         lshaped.subworkers[w],
+                                         scenarioproblems[w])
+    end
+    map(wait,finished_workers)
 end
