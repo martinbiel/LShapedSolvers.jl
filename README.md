@@ -16,17 +16,19 @@ julia> solve(sp,solver=LShapedSolver(ClpSolver()))
 
 ```
 
-Note, that an `AbstractMathProgSolver` is required to solve emerging subproblems. The following variants are implemented
+Note, that an LP capable `AbstractMathProgSolver` is required to solve emerging subproblems. The following variants of the L-shaped algorithm are implemented:
 
 1. L-shaped with multiple cuts (default): `LShapedSolver(:ls)`
-2. L-shaped with regularized decomposition (requires QP capable `AbstractMathProgSolver`): `LShapedSolver(:rd)`
+2. L-shaped with regularized decomposition: `LShapedSolver(:rd)`
 3. L-shaped with trust region: `LShapedSolver(:tr)`
 4. L-shaped with level sets: `LShapedSolver(:lv)`
 
-In addition, all there is a distributed variant of each algorithm.
+Note, that `LShapedSolver(:rd)` and `LShapedSolver(:lv)` both require a QP capable `AbstractMathProgSolver` for the master problems.
+
+In addition, there is a distributed variant of each algorithm:
 
 1. Distributed L-shaped with multiple cuts: `LShapedSolver(:dls)`
-2. Distributed L-shaped with regularized decomposition (requires QP capable `AbstractMathProgSolver`): `LShapedSolver(:drd)`
+2. Distributed L-shaped with regularized decomposition: `LShapedSolver(:drd)`
 3. Distributed L-shaped with trust region: `LShapedSolver(:dtr)`
 4. Distributed L-shaped with level sets: `LShapedSolver(:dlv)`
 
