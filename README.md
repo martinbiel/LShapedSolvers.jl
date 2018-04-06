@@ -6,7 +6,7 @@
 
 [![codecov.io](http://codecov.io/github/martinbiel/LShaped.jl/coverage.svg?branch=master)](http://codecov.io/github/martinbiel/LShaped.jl?branch=master)
 
-`LShapedSolvers` is a collection of structured solver algorithms for two-stage stochastic recourse problems. All algorithm variants are based on the L-shaped method by Van Slyke and Wets. `LShapedSolvers` interfaces with [StochasticPrograms.jl][StochProg], and a given recourse model `sp` is solved effectively through
+`LShapedSolvers` is a collection of structured optimization algorithms for two-stage (L-shaped) stochastic recourse problems. All algorithm variants are based on the L-shaped method by Van Slyke and Wets. `LShapedSolvers` interfaces with [StochasticPrograms.jl][StochProg], and a given recourse model `sp` is solved effectively through
 
 ```julia
 julia> using LShapedSolvers
