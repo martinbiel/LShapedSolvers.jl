@@ -47,5 +47,5 @@ Mathematical Programming, vol. 35, no. 3, pp. 309-333.
 3. Linderoth, J. and Wright, S. (2003), [Decomposition Algorithms for Stochastic Programming on a Computational Grid](https://link.springer.com/article/10.1023/A:1021858008222),
 Computational Optimization and Applications, vol. 24, no. 2-3, pp. 207-250.
 
-4. F{\'{a}}bi{\'{a}}n, C. and Sz{\H{o}}ke, Z. (2006), [Solving two-stage stochastic programming problems with level decomposition](https://link.springer.com/article/10.1007%2Fs10287-006-0026-8),
+4. Fábián, C. and Szőke, Z. (2006), [Solving two-stage stochastic programming problems with level decomposition](https://link.springer.com/article/10.1007%2Fs10287-006-0026-8),
 Computational Management Science, vol. 4, no. 4, pp. 313-353.
