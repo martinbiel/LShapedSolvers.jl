@@ -11,7 +11,11 @@
 ```julia
 julia> using LShapedSolvers
 
-julia> solve(sp,solver=LShapedSolver(ClpSolver()))
+julia> solve(sp,solver=LShapedSolver(:ls,ClpSolver()))
+L-Shaped Gap  Time: 0:00:01 (4 iterations)
+  Objective:       -855.8333333333358
+  Gap:             2.1229209144670507e-15
+  Number of cuts:  5
 :Optimal
 
 ```
