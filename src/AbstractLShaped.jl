@@ -40,10 +40,10 @@ function calculate_estimate(lshaped::AbstractLShapedSolver)
     return lshaped.c⋅lshaped.x + sum(lshaped.θs)
 end
 
-function calculate_objective_value(lshaped::AbstractLShapedSolver,Qs::AbstractVector)
+function current_objective_value(lshaped::AbstractLShapedSolver,Qs::AbstractVector)
     return lshaped.c⋅lshaped.x + sum(Qs)
 end
-calculate_objective_value(lshaped) = calculate_objective_value(lshaped,lshaped.subobjectives)
+current_objective_value(lshaped) = current_objective_value(lshaped,lshaped.subobjectives)
 
 function get_solution(lshaped::AbstractLShapedSolver)
     return lshaped.x
@@ -80,7 +80,7 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
     end
 
     # Return current objective value
-    return calculate_objective_value(lshaped)
+    return current_objective_value(lshaped)
 end
 
 function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::TimerOutput) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
@@ -98,7 +98,7 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::Tim
     end
 
     # Return current objective value
-    return calculate_objective_value(lshaped)
+    return current_objective_value(lshaped)
 end
 
 function check_optimality(lshaped::AbstractLShapedSolver)

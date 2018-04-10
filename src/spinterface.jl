@@ -60,35 +60,5 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
     end
 
     # Second stage
-    fill_subproblems!(lshaped,scenarioproblems(stochasticprogram))
-end
-
-function fill_subproblems!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems)
-    for (i,submodel) in enumerate(scenarioproblems.problems)
-        snrows, sncols = length(submodel.linconstr), submodel.numCols
-        subproblem = lshaped.subproblems[i]
-        submodel.colVal = copy(subproblem.y)
-        submodel.redCosts = try
-            getreducedcosts(subproblem.solver.lqmodel)[1:sncols]
-        catch
-            fill(NaN, sncols)
-        end
-        submodel.linconstrDuals = try
-            getconstrduals(subproblem.solver.lqmodel)[1:snrows]
-        catch
-            fill(NaN, snrows)
-        end
-        submodel.objVal = getobjval(subproblem.solver)
-    end
-end
-
-function fill_subproblems!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems)
-    finished_workers = Vector{Future}(length(scenarioproblems))
-    for w = 1:length(scenarioproblems)
-        finished_workers[w] = remotecall(fill_subproblems!,
-                                         w+1,
-                                         lshaped.subworkers[w],
-                                         scenarioproblems[w])
-    end
-    map(wait,finished_workers)
+    fill_submodels!(lshaped,scenarioproblems(stochasticprogram))
 end

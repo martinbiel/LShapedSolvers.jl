@@ -9,11 +9,33 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
     y::A
     masterterms::Vector{Tuple{Int,Int,T}}
 
+    function (::Type{SubProblem})(model::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,masterterms::Vector{Tuple{Int,Int,R}},optimsolver::AbstractMathProgSolver) where R <: Real
+        T = promote_type(eltype(x),eltype(y₀),R,Float32)
+        x_ = convert(AbstractVector{T},x)
+        y₀_ = convert(AbstractVector{T},y₀)
+        masterterms_ = convert(Vector{Tuple{Int,Int,T}},masterterms)
+        A = typeof(x_)
+
+        solver = LQSolver(model,optimsolver)
+
+        subproblem = new{T,A,typeof(solver)}(id,
+                                             π,
+                                             solver,
+                                             (convert(A,getconstrLB(solver.lqmodel)),
+                                              convert(A,getconstrUB(solver.lqmodel))),
+                                             x_,
+                                             y₀_,
+                                             masterterms_
+                                             )
+
+        return subproblem
+    end
+
     function (::Type{SubProblem})(model::JuMP.Model,parent::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
         T = promote_type(eltype(x),eltype(y₀),Float32)
         x_ = convert(AbstractVector{T},x)
         y₀_ = convert(AbstractVector{T},y₀)
-        A = typeof(x)
+        A = typeof(x_)
 
         solver = LQSolver(model,optimsolver)
 
@@ -59,6 +81,10 @@ function update_subproblem!(subproblem::SubProblem,x::AbstractVector)
     subproblem.x[:] = x
 end
 update_subproblems!(subproblems::Vector{<:SubProblem},x::AbstractVector) = map(prob -> update_subproblem!(prob,x),subproblems)
+
+function get_solution(subproblem::SubProblem)
+    return copy(subproblem.y),getredcosts(subproblem.solver),getduals(subproblem.solver),getobjval(subproblem.solver)
+end
 
 function (subproblem::SubProblem)()
     subproblem.solver(subproblem.y)

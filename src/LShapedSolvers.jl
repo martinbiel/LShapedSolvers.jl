@@ -25,7 +25,7 @@ export
     get_objective_value
 
 # Include files
-include("LPSolver.jl")
+include("LQSolver.jl")
 include("subproblem.jl")
 include("hyperplane.jl")
 include("AbstractLShaped.jl")

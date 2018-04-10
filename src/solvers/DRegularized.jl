@@ -146,7 +146,7 @@ function (lshaped::DRegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
             lshaped.subobjectives[t][cut.id] = Q
             lshaped.finished[t] += 1
             if lshaped.finished[t] == lshaped.nscenarios
-                lshaped.Q_history[t] = calculate_objective_value(lshaped,lshaped.subobjectives[t])
+                lshaped.Q_history[t] = current_objective_value(lshaped,lshaped.subobjectives[t])
                 if lshaped.Q_history[t] <= lshaped.solverdata.Q
                     lshaped.solverdata.Q = lshaped.Q_history[t]
                 end
@@ -178,7 +178,7 @@ function (lshaped::DRegularized{T,A,M,S})() where {T <: Real, A <: AbstractVecto
                 # Optimal
                 map(w->put!(w,-1),lshaped.work)
                 lshaped.x[:] = lshaped.ξ[:]
-                lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+                lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
                 lshaped.Q_history[t] = lshaped.solverdata.Q
                 close(lshaped.cutqueue)
                 map(wait,finished_workers)

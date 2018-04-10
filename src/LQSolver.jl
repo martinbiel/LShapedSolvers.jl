@@ -45,12 +45,35 @@ function getobjval(solver::LQSolver)
     end
 end
 
-function getduals(solver::LQSolver)
+function getredcosts(solver::LQSolver)
+    cols = numvar(solver.lqmodel)
     optimstatus = status(solver)
     if optimstatus == :Optimal
-        return getconstrduals(solver.lqmodel)
+        return try
+            getreducedcosts(solver.lqmodel)[1:cols]
+        catch
+            fill(NaN, cols)
+        end
+    else
+        error("LP was not solved to optimality. Return status: ", optimstatus)
+    end
+end
+
+function getduals(solver::LQSolver)
+    rows = numconstr(solver.lqmodel)
+    optimstatus = status(solver)
+    if optimstatus == :Optimal
+        return try
+            getconstrduals(solver.lqmodel)[1:rows]
+        catch
+            fill(NaN, rows)
+        end
     elseif optimstatus ==:Infeasible
-        return getinfeasibilityray(solver.lqmodel)
+        return try
+            getinfeasibilityray(solver.lqmodel)[1:rows]
+        catch
+            fill(NaN, rows)
+        end
     else
         error("LP was not solved to optimality, and the model was not infeasible. Returned status: ", optimstatus)
     end

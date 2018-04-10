@@ -119,7 +119,7 @@ function (lshaped::DLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             lshaped.subobjectives[t][cut.id] = Q
             lshaped.finished[t] += 1
             if lshaped.finished[t] == lshaped.nscenarios
-                lshaped.Q_history[t] = calculate_objective_value(lshaped,lshaped.subobjectives[t])
+                lshaped.Q_history[t] = current_objective_value(lshaped,lshaped.subobjectives[t])
                 if lshaped.Q_history[t] <= lshaped.solverdata.Q
                     lshaped.solverdata.Q = lshaped.Q_history[t]
                 end
@@ -144,7 +144,7 @@ function (lshaped::DLShaped{T,A,M,S})() where {T <: Real, A <: AbstractVector, M
             if check_optimality(lshaped)
                 # Optimal
                 map(w->put!(w,-1),lshaped.work)
-                lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+                lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
                 lshaped.Q_history[t] = lshaped.solverdata.Q
                 @async begin
                     close(lshaped.cutqueue)

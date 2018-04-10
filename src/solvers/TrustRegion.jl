@@ -53,8 +53,7 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     function (::Type{TrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() > 1
-            warn("There are worker processes, defaulting to distributed version of algorithm")
-            return DTrustRegion(model,ξ₀,mastersolver,subsolver; kw...)
+            warn("There are worker processes, consider using distributed version of algorithm")
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
@@ -112,7 +111,7 @@ function (lshaped::TrustRegion)()
         if check_optimality(lshaped)
             # Optimal
             lshaped.x[:] = lshaped.ξ[:]
-            lshaped.solverdata.Q = calculateObjective(lshaped,lshaped.x)
+            lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
             push!(lshaped.Q_history,lshaped.solverdata.Q)
             return :Optimal
         end

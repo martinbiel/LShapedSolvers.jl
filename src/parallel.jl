@@ -7,17 +7,8 @@
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         # Prepare the subproblems
         m = lshaped.structuredmodel
-        for i = 1:lshaped.nscenarios
-            y₀ = convert(A,rand(subproblem(m,i).numCols))
-            push!(lshaped.subproblems,SubProblem(subproblem(m,i),
-                                                 parentmodel(scenarioproblems(m)),
-                                                 i,
-                                                 probability(m,i),
-                                                 copy(lshaped.x),
-                                                 y₀,
-                                                 subsolver))
-        end
-        lshaped
+        load_subproblems!(lshaped,scenarioproblems(m),subsolver)
+        return lshaped
     end
 
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
@@ -52,13 +43,63 @@
     end
 end
 
-@define_traitfn IsParallel calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector) = begin
-    function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector,NullTrait)
+@define_traitfn IsParallel calculate_objective_value(lshaped::AbstractLShapedSolver,x::AbstractVector) = begin
+    function calculate_objective_value(lshaped::AbstractLShapedSolver,x::AbstractVector,NullTrait)
         return lshaped.c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
     end
 
-    function calculateObjective(lshaped::AbstractLShapedSolver,x::AbstractVector,IsParallel)
+    function calculate_objective_value(lshaped::AbstractLShapedSolver,x::AbstractVector,IsParallel)
         return lshaped.c⋅x + sum(fetch.([@spawnat w+1 calculate_subobjective(worker,x) for (w,worker) in enumerate(lshaped.subworkers)]))
+    end
+end
+
+@define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems) = begin
+    function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems,NullTrait)
+        for (i,submodel) in enumerate(scenarioproblems.problems)
+            fill_submodel!(submodel,lshaped.subproblems[i])
+        end
+    end
+
+    function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems,IsParallel)
+        j = 0
+        for w = 1:length(lshaped.subworkers)
+            n = remotecall_fetch((sw)->length(fetch(sw)),w+1,lshaped.subworkers[w])
+            for i = 1:n
+                fill_submodel!(scenarioproblems.problems[i+j],remotecall_fetch((sw,i)->get_solution(fetch(sw)[i]),w+1,lshaped.subworkers[w],i)...)
+            end
+            j += n
+        end
+    end
+end
+
+@define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
+    function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,NullTrait)
+        finished_workers = Vector{Future}(length(scenarioproblems))
+        j = 1
+        for w = 1:length(scenarioproblems)
+            n = remotecall_fetch((sp)->length(fetch(sp).problems),w+1,scenarioproblems[w])
+            finished_workers[w] = remotecall((subproblems,sp) -> begin
+                                               scenarioproblems = fetch(sp)
+                                               for (i,submodel) in enumerate(scenarioproblems.problems)
+                                                 fill_submodel!(submodel,subproblems[i])
+                                               end
+                                             end,
+                                             w+1,
+                                             lshaped.subproblems[j:n],
+                                             scenarioproblems[w])
+            j += n
+        end
+    end
+
+    function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,IsParallel)
+        finished_workers = Vector{Future}(length(scenarioproblems))
+        for w = 1:length(scenarioproblems)
+            finished_workers[w] = remotecall(fill_submodels!,
+                                             w+1,
+                                             lshaped.subworkers[w],
+                                             scenarioproblems[w])
+        end
+        map(wait,finished_workers)
     end
 end
 
@@ -102,6 +143,36 @@ Work = RemoteChannel{Channel{Int}}
 Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
+
+function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.ScenarioProblems,subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+    for i = 1:lshaped.nscenarios
+        m = subproblem(scenarioproblems,i)
+        y₀ = convert(A,rand(m.numCols))
+        push!(lshaped.subproblems,SubProblem(m,
+                                             parentmodel(scenarioproblems),
+                                             i,
+                                             probability(scenario(scenarioproblems,i)),
+                                             copy(lshaped.x),
+                                             y₀,
+                                             subsolver))
+    end
+    return lshaped
+end
+
+function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.DScenarioProblems,subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+    for i = 1:lshaped.nscenarios
+        m = subproblem(scenarioproblems,i)
+        y₀ = convert(A,rand(m.numCols))
+        push!(lshaped.subproblems,SubProblem(m,
+                                             i,
+                                             probability(scenario(scenarioproblems,i)),
+                                             copy(lshaped.x),
+                                             y₀,
+                                             masterterms(scenarioproblems,i),
+                                             subsolver))
+    end
+    return lshaped
+end
 
 function load_worker!(sp::StochasticPrograms.ScenarioProblems,
                       w::Integer,
@@ -196,28 +267,6 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
     end
 end
 
-function fill_subproblems!(subworker::SubWorker{T,A,S},
-                           scenarioproblems::ScenarioProblems) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    sp = fetch(scenarioproblems)
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
-    for (i,submodel) in enumerate(sp.problems)
-        snrows, sncols = length(submodel.linconstr), submodel.numCols
-        subproblem = subproblems[i]
-        submodel.colVal = copy(subproblem.y)
-        submodel.redCosts = try
-            getreducedcosts(subproblem.solver.lqmodel)[1:sncols]
-        catch
-            fill(NaN, sncols)
-        end
-        submodel.linconstrDuals = try
-            getconstrduals(subproblem.solver.lqmodel)[1:snrows]
-        catch
-            fill(NaN, snrows)
-        end
-        submodel.objVal = getobjval(subproblem.solver)
-    end
-end
-
 function calculate_subobjective(subworker::SubWorker{T,A,S},
                                 x::A) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
@@ -226,4 +275,24 @@ function calculate_subobjective(subworker::SubWorker{T,A,S},
     else
         return zero(T)
     end
+end
+
+function fill_submodels!(subworker::SubWorker{T,A,S},
+                         scenarioproblems::ScenarioProblems) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    sp = fetch(scenarioproblems)
+    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    for (i,submodel) in enumerate(sp.problems)
+        fill_submodel!(submodel,subproblems[i])
+    end
+end
+
+function fill_submodel!(submodel::JuMP.Model,x::AbstractVector,μ::AbstractVector,λ::AbstractVector,C::Real)
+    submodel.colVal = x
+    submodel.redCosts = μ
+    submodel.linconstrDuals = λ
+    submodel.objVal = C
+end
+
+function fill_submodel!(submodel::JuMP.Model,subproblem::SubProblem)
+    fill_submodel!(submodel,get_solution(subproblem)...)
 end
