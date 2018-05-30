@@ -22,7 +22,7 @@ info("Test problems loaded. Starting test sequence.")
     solve(sp,solver=solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
-    solve(sp,solver=lsolver,crash=true)
+    solve(sp,solver=lsolver,crash=Crash.EVP())
     @test norm(sp.colVal - x̄) <= 1e-2
     @test abs(sp.objVal - Q̄) <= 1e-2
 end

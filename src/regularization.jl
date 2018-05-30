@@ -15,17 +15,17 @@ end
 
 @define_traitfn UsesRegularization take_step!(lshaped::AbstractLShapedSolver)
 
-@define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = begin
-    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},!UsesRegularization)
+@define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = begin
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,!UsesRegularization)
         nothing
     end
 
-    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},UsesRegularization)
+    function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,UsesRegularization)
         nothing
     end
 end
 
-@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},IsRegularized)
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,IsRegularized)
     push!(lshaped.committee,cut)
     nothing
 end

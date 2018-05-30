@@ -9,15 +9,8 @@ struct LShapedSolver{S <: AbstractMathProgSolver} <: AbstractStructuredSolver
 end
 LShapedSolver(lpsolver::AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
 
-function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; crash=false, subsolver=solver.lpsolver)
-    x₀ = if crash
-        evp = StochasticPrograms.EVP(stochasticprogram,solver.lpsolver)
-        status = solve(evp)
-        status != :Optimal && error("Could not solve EVP model during crash procedure. Aborting.")
-        evp.colVal[1:stochasticprogram.numCols]
-    else
-        rand(stochasticprogram.numCols)
-    end
+function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; crash::Crash.CrashMethod = Crash.None(), subsolver = solver.lpsolver)
+    x₀ = crash(stochasticprogram,solver.lpsolver)
     if solver.variant == :ls
         return LShaped(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
     elseif solver.variant == :dls

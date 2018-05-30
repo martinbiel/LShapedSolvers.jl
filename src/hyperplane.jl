@@ -102,16 +102,23 @@ ArtificialCut(val::Real,dim::Int,id::Int) = OptimalityCut(sparsevec(zeros(dim)),
 function FeasibilityCut(subproblem::SubProblem)
     @assert status(subproblem.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"
     λ = getduals(subproblem.solver)
-    cols = zeros(length(subproblem.masterTerms))
-    vals = zeros(length(subproblem.masterTerms))
+    cols = zeros(length(subproblem.masterterms))
+    vals = zeros(length(subproblem.masterterms))
     for (s,(i,j,coeff)) in enumerate(subproblem.masterterms)
         cols[s] = j
         vals[s] = -λ[i]*coeff
     end
     G = sparsevec(cols,vals,length(subproblem.x))
-    g = subproblem.solver.obj+G⋅subproblem.x
+    g = getobjval(subproblem.solver)+G⋅subproblem.x
 
-    return FeasibilityCut(G, g, subprob.id)
+    # Scale to avoid numerical issues
+    scaling = abs(g)
+    if scaling == 0
+        scaling = maximum(G)
+    end
+    G = G/scaling
+
+    return FeasibilityCut(G, g, subproblem.id)
 end
 
 function LinearConstraint(constraint::JuMP.LinearConstraint,i::Integer)

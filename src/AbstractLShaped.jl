@@ -135,20 +135,7 @@ addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::Abstrac
 addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
 
 function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
-    D = cut.δQ
-    d = cut.q
-
-    # Scale to avoid numerical issues
-    scaling = abs(d)
-    if scaling == 0
-        scaling = maximum(D)
-    end
-
-    D = D/scaling
-
-    if hastrait(lshaped,IsRegularized)
-        push!(lshaped.committee,cut)
-    end
+    process_cut!(lshaped,cut)
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
