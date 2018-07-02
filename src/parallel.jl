@@ -108,11 +108,11 @@ end
 
 @define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,NullTrait)
-        finished_workers = Vector{Future}(length(scenarioproblems))
+        active_workers = Vector{Future}(length(scenarioproblems))
         j = 1
         for w = 1:length(scenarioproblems)
             n = remotecall_fetch((sp)->length(fetch(sp).problems),w+1,scenarioproblems[w])
-            finished_workers[w] = remotecall((subproblems,sp) -> begin
+            active_workers[w] = remotecall((subproblems,sp) -> begin
                                                scenarioproblems = fetch(sp)
                                                for (i,submodel) in enumerate(scenarioproblems.problems)
                                                  fill_submodel!(submodel,subproblems[i])
@@ -126,14 +126,14 @@ end
     end
 
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,IsParallel)
-        finished_workers = Vector{Future}(length(scenarioproblems))
+        active_workers = Vector{Future}(length(scenarioproblems))
         for w = 1:length(scenarioproblems)
-            finished_workers[w] = remotecall(fill_submodels!,
+            active_workers[w] = remotecall(fill_submodels!,
                                              w+1,
                                              lshaped.subworkers[w],
                                              scenarioproblems[w])
         end
-        map(wait,finished_workers)
+        map(wait,active_workers)
     end
 end
 
