@@ -2,7 +2,8 @@
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
-    i::Int = 1
+    iterations::Int = 0
+    levelindex::Int = -1
 end
 
 @with_kw struct LevelSetParameters{T <: Real}
@@ -88,9 +89,8 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                A(),
                                LevelSetParameters{T}(;kw...),
                                ProgressThresh(1.0, "Leveled L-Shaped Gap "))
-        lshaped.progress.thresh = lshaped.parameters.τ
+        # Initialize solver
         init!(lshaped,subsolver)
-
         return lshaped
     end
 end
@@ -99,74 +99,11 @@ LevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::Abstr
 function (lshaped::LevelSet)()
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
+    # Start procedure
     while true
         status = iterate!(lshaped)
         if status != :Valid
             return status
         end
-
-        if check_optimality(lshaped)
-            # Optimal
-            lshaped.x[:] = lshaped.ξ[:]
-            lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
-            push!(lshaped.Q_history,lshaped.solverdata.Q)
-            return :Optimal
-        end
-
-        project!(lshaped)
-        lshaped.ξ[:] = lshaped.x[:]
     end
-end
-
-function iterate!(lshaped::LevelSet)
-    if isempty(lshaped.violating)
-        # Resolve all subproblems at the current optimal solution
-        lshaped.solverdata.Q = resolve_subproblems!(lshaped)
-        if lshaped.solverdata.Q == -Inf
-            return :Unbounded
-        end
-        # Update the optimization vector
-        take_step!(lshaped)
-    else
-        # # Add at most L violating constraints
-        # L = 0
-        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
-        #     constraint = dequeue!(lshaped.violating)
-        #     if satisfied(lshaped,constraint)
-        #         push!(lshaped.inactive,constraint)
-        #         continue
-        #     end
-        #     println("Adding violated constraint to committee")
-        #     push!(lshaped.committee,constraint)
-        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-        #     L += 1
-        # end
-    end
-    # Resolve master
-    lshaped.mastersolver(lshaped.x)
-    if status(lshaped.mastersolver) == :Infeasible
-        warn("Master is infeasible, aborting procedure.")
-        return :Infeasible
-    end
-    # Update master solution
-    update_solution!(lshaped)
-    lshaped.solverdata.θ = calculate_estimate(lshaped)
-    # remove_inactive!(lshaped)
-    # if length(lshaped.violating) <= lshaped.nscenarios
-    #     queueViolated!(lshaped)
-    # end
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    push!(lshaped.Q_history,Q)
-    push!(lshaped.Q̃_history,Q̃)
-    push!(lshaped.θ_history,θ)
-    gap = abs(θ-Q)/(1+abs(Q))
-    if lshaped.parameters.log
-        ProgressMeter.update!(lshaped.progress,gap,
-                              showvalues = [
-                                  ("Objective",Q),
-                                  ("Gap",gap),
-                                  ("Number of cuts",length(lshaped.cuts))
-                              ])
-    end
-    return :Valid
 end

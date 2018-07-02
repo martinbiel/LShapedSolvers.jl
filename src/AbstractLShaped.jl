@@ -5,6 +5,8 @@ nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 # Initialization #
 # ======================================================================== #
 function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    # Initialize progress meter
+    lshaped.progress.thresh = lshaped.parameters.τ
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
@@ -99,6 +101,66 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::Tim
 
     # Return current objective value
     return current_objective_value(lshaped)
+end
+
+function iterate_nominal!(lshaped::AbstractLShapedSolver)
+    # Resolve all subproblems at the current optimal solution
+    Q = resolve_subproblems!(lshaped)
+    if Q == -Inf
+        return :Unbounded
+    end
+    lshaped.solverdata.Q = Q
+    # Update the optimization vector
+    take_step!(lshaped)
+    # Resolve master
+    lshaped.mastersolver(lshaped.x)
+    if status(lshaped.mastersolver) == :Infeasible
+        warn("Master is infeasible, aborting procedure.")
+        return :Infeasible
+    end
+    # Update master solution
+    update_solution!(lshaped)
+    lshaped.solverdata.θ = calculate_estimate(lshaped)
+    # Log progress
+    log!(lshaped)
+    # Check optimality
+    if check_optimality(lshaped)
+        # Optimal
+        lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
+        push!(lshaped.Q_history,lshaped.solverdata.Q)
+        return :Optimal
+    end
+    # Project (if applicable)
+    project!(lshaped)
+    # Just return a valid status for this iteration
+    return :Valid
+end
+
+function log!(lshaped::AbstractLShapedSolver)
+    @unpack Q,θ = lshaped.solverdata
+    push!(lshaped.Q_history,Q)
+    push!(lshaped.θ_history,θ)
+    lshaped.solverdata.iterations += 1
+
+    log_regularization!(lshaped)
+
+    gap = abs(θ-Q)/(1+abs(Q))
+    if lshaped.parameters.log
+        ProgressMeter.update!(lshaped.progress,gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
+end
+
+function log!(lshaped::AbstractLShapedSolver,t::Integer)
+    @unpack Q,θ = lshaped.solverdata
+    lshaped.Q_history[t] = Q
+    lshaped.θ_history[t] = θ
+
+    log_regularization!(lshaped,t)
 end
 
 function check_optimality(lshaped::AbstractLShapedSolver)

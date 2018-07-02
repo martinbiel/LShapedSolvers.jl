@@ -3,14 +3,13 @@
     Q̃::T = 1e10
     θ::T = -1e10
     σ::T = 1.0
-    exact_steps::Int = 0
-    approximate_steps::Int = 0
-    null_steps::Int = 0
+    iterations::Int = 0
+    major_iterations::Int = 0
+    minor_iterations::Int = 0
 end
 
 @with_kw struct RegularizedParameters{T <: Real}
     τ::T = 1e-6
-    γ::T = 0.9
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
@@ -91,9 +90,8 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                A(),
                                RegularizedParameters{T}(;kw...),
                                ProgressThresh(1.0, "RD L-Shaped Gap "))
-        lshaped.progress.thresh = lshaped.parameters.τ
+        # Initialize solver
         init!(lshaped,subsolver)
-
         return lshaped
     end
 end
@@ -108,67 +106,5 @@ function (lshaped::Regularized)()
         if status != :Valid
             return status
         end
-
-        if check_optimality(lshaped)
-            # Optimal
-            lshaped.x[:] = lshaped.ξ[:]
-            lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
-            push!(lshaped.Q_history,lshaped.solverdata.Q)
-            return :Optimal
-        end
     end
-end
-
-function iterate!(lshaped::Regularized)
-    if isempty(lshaped.violating)
-        # Resolve all subproblems at the current optimal solution
-        lshaped.solverdata.Q = resolve_subproblems!(lshaped)
-        if lshaped.solverdata.Q == -Inf
-            return :Unbounded
-        end
-        # Update the optimization vector
-        take_step!(lshaped)
-    else
-        # # Add at most L violating constraints
-        # L = 0
-        # while !isempty(lshaped.violating) && L < lshaped.nscenarios
-        #     constraint = dequeue!(lshaped.violating)
-        #     if satisfied(lshaped,constraint)
-        #         push!(lshaped.inactive,constraint)
-        #         continue
-        #     end
-        #     push!(lshaped.committee,constraint)
-        #     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(constraint)...)
-        #     L += 1
-        # end
-    end
-
-    # Resolve master
-    lshaped.mastersolver(lshaped.x)
-    if status(lshaped.mastersolver) == :Infeasible
-        warn("Master is infeasible, aborting procedure.")
-        return :Infeasible
-    end
-    # Update master solution
-    update_solution!(lshaped)
-    lshaped.solverdata.θ = calculate_estimate(lshaped)
-    remove_inactive!(lshaped)
-    # if length(lshaped.violating) <= lshaped.nscenarios
-    #     queueViolated!(lshaped)
-    # end
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    push!(lshaped.Q_history,Q)
-    push!(lshaped.Q̃_history,Q̃)
-    push!(lshaped.θ_history,θ)
-    push!(lshaped.σ_history,lshaped.solverdata.σ)
-    gap = abs(θ-Q)/(1+abs(Q))
-    if lshaped.parameters.log
-        ProgressMeter.update!(lshaped.progress,gap,
-                              showvalues = [
-                                  ("Objective",Q),
-                                  ("Gap",gap),
-                                  ("Number of cuts",length(lshaped.cuts))
-                              ])
-    end
-    return :Valid
 end
