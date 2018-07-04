@@ -32,6 +32,10 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; cr
     end
 end
 
+function optimsolver(solver::LShapedSolver)
+    return solver.lpsolver
+end
+
 function optimize_structured!(lshaped::AbstractLShapedSolver)
     return lshaped()
 end

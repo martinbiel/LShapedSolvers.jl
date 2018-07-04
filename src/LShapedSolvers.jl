@@ -10,7 +10,7 @@ using ProgressMeter
 using TimerOutputs
 
 import Base: show, put!, wait, isready, take!, fetch
-import StochasticPrograms: StructuredModel, optimize_structured!, fill_solution!
+import StochasticPrograms: StructuredModel, optimsolver, optimize_structured!, fill_solution!
 importall MathProgBase.SolverInterface
 
 using Base.Order: Ordering, ReverseOrdering, Reverse
@@ -20,6 +20,7 @@ export
     LShapedSolver,
     Crash,
     StructuredModel,
+    optimsolver,
     optimize_structured!,
     fill_solution!,
     get_solution,
