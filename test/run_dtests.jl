@@ -31,8 +31,8 @@ info("Test problems loaded. Starting test sequence.")
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver,crash=Crash.EVP())
-    @test norm(sp.colVal - x̄) <= 1e-2
-    @test abs(sp.objVal - Q̄) <= 1e-2
+    @test norm(optimal_decision(sp) - x̄) <= 1e-2
+    @test abs(optimal_value(sp) - Q̄) <= 1e-2
 end
 
 @testset "Distributed $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
