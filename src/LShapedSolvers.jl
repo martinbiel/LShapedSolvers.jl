@@ -1,3 +1,4 @@
+__precompile__()
 module LShapedSolvers
 
 using TraitDispatch
@@ -7,7 +8,6 @@ using StochasticPrograms
 using MathProgBase
 using RecipesBase
 using ProgressMeter
-using TimerOutputs
 
 import Base: show, put!, wait, isready, take!, fetch
 import StochasticPrograms: StructuredModel, optimsolver, optimize_structured!, fill_solution!

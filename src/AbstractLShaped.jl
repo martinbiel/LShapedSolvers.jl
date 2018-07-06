@@ -13,7 +13,6 @@ function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathPr
     init_solver!(lshaped)
     init_subproblems!(lshaped,subsolver)
 end
-
 # ======================================================================== #
 
 # Functions #
@@ -85,24 +84,6 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
     return current_objective_value(lshaped)
 end
 
-function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},timer::TimerOutput) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
-    # Update subproblems
-    @timeit timer "update" update_subproblems!(lshaped.subproblems,lshaped.x)
-
-    # Solve sub problems
-    for subproblem ∈ lshaped.subproblems
-        @timeit timer "solve" cut::SparseHyperPlane{T} = subproblem()
-        if !bounded(cut)
-            warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
-            return -Inf
-        end
-        @timeit timer "create/add cut" addcut!(lshaped,cut)
-    end
-
-    # Return current objective value
-    return current_objective_value(lshaped)
-end
-
 function iterate_nominal!(lshaped::AbstractLShapedSolver)
     # Resolve all subproblems at the current optimal solution
     Q = resolve_subproblems!(lshaped)
@@ -168,6 +149,7 @@ function check_optimality(lshaped::AbstractLShapedSolver)
     @unpack Q,θ = lshaped.solverdata
     return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
 end
+# ======================================================================== #
 
 # Cut functions #
 # ======================================================================== #
@@ -214,7 +196,10 @@ end
 function show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
     show(io,lshaped)
 end
+# ======================================================================== #
 
+# Plot recipe #
+# ======================================================================== #
 @recipe f(lshaped::AbstractLShapedSolver) = lshaped,-1
 @recipe function f(lshaped::AbstractLShapedSolver, time::Real; showθ = false)
     length(lshaped.Q_history) > 0 || error("No solution data. Has solver been run?")
@@ -280,3 +265,4 @@ end
         end
     end
 end
+# ======================================================================== #

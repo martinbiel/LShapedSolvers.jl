@@ -6,9 +6,9 @@ using Gurobi
 
 solver = GurobiSolver(OutputFlag=0)
 lsolvers = [(LShapedSolver(:ls,solver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,solver,σ=60.0,σ̲=10.0,σ̅=200.0,log=false),"RD L-Shaped"),
-            (LShapedSolver(:tr,solver,Δ=50.0,Δ̅=100.0,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,solver,λ=0.95,log=false),"Leveled L-Shaped")]
+            (LShapedSolver(:rd,solver,crash=Crash.EVP(),σ=60.0,σ̲=10.0,σ̅=200.0,log=false),"RD L-Shaped"),
+            (LShapedSolver(:tr,solver,crash=Crash.EVP(),Δ=50.0,Δ̅=100.0,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,solver,crash=Crash.EVP(),λ=0.95,log=false),"Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
 info("Loading test problems...")
@@ -22,7 +22,7 @@ info("Test problems loaded. Starting test sequence.")
     solve(sp,solver=solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
-    solve(sp,solver=lsolver,crash=Crash.EVP())
+    solve(sp,solver=lsolver)
     @test norm(optimal_decision(sp) - x̄) <= 1e-2
     @test abs(optimal_value(sp) - Q̄) <= 1e-2
 end
