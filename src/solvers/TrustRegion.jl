@@ -9,12 +9,13 @@
     minor_iterations::Int = 0
 end
 
-@with_kw struct TrustRegionParameters{T <: Real}
+@with_kw mutable struct TrustRegionParameters{T <: Real}
     τ::T = 1e-6
     γ::T = 1e-4
     Δ = 1.0
     Δ̅::T = 1.0
     log::Bool = true
+    autotune::Bool = false
 end
 
 struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}

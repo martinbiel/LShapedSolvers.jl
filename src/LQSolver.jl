@@ -13,7 +13,11 @@ end
 
 function (solver::LQSolver)(x₀::AbstractVector)
     if applicable(setwarmstart!,solver.lqmodel,x₀)
-        setwarmstart!(solver.lqmodel,x₀)
+        try
+            setwarmstart!(solver.lqmodel,x₀)
+        catch
+            warn("Could not set warm start for some reason")
+        end
     end
     optimize!(solver.lqmodel)
 

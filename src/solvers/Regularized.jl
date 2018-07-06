@@ -8,7 +8,7 @@
     minor_iterations::Int = 0
 end
 
-@with_kw struct RegularizedParameters{T <: Real}
+@with_kw mutable struct RegularizedParameters{T <: Real}
     τ::T = 1e-6
     σ::T = 1.0
     σ̅::T = 4.0

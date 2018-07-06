@@ -6,7 +6,7 @@
     levelindex::Int = -1
 end
 
-@with_kw struct LevelSetParameters{T <: Real}
+@with_kw mutable struct LevelSetParameters{T <: Real}
     τ::T = 1e-6
     λ::T = 0.5
     log::Bool = true

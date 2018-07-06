@@ -157,6 +157,11 @@ end
 @define_traitfn HasTrustRegion reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasTrustRegion)
+    if lshaped.parameters.autotune
+        Δ = max(1.0,0.01*norm(lshaped.x,Inf))
+        Δ̅ = 0.05*norm(lshaped.x,Inf)
+        @pack lshaped.parameters = Δ,Δ̅
+    end
     lshaped.solverdata.Δ = lshaped.parameters.Δ
     push!(lshaped.Δ_history,lshaped.solverdata.Δ)
 

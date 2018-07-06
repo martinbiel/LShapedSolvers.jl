@@ -17,6 +17,12 @@ end
 
 # Functions #
 # ======================================================================== #
+function set_params!(lshaped::AbstractLShapedSolver; kwargs...)
+    for (k,v) in kwargs
+        setfield!(lshaped.parameters,k,v)
+    end
+end
+
 function update_solution!(lshaped::AbstractLShapedSolver)
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.mastersolver)

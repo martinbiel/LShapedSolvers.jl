@@ -4,7 +4,7 @@
     iterations::Int = 0
 end
 
-@with_kw struct LShapedParameters{T <: Real}
+@with_kw mutable struct LShapedParameters{T <: Real}
     τ::T = 1e-6
     log::Bool = true
 end
