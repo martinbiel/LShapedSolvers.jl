@@ -1,32 +1,34 @@
-struct LShapedSolver{S <: AbstractMathProgSolver} <: AbstractStructuredSolver
+struct LShapedSolver <: AbstractStructuredSolver
     variant::Symbol
-    lpsolver::S
+    lpsolver::AbstractMathProgSolver
+    subsolver::AbstractMathProgSolver
+    crash::Crash.CrashMethod
     parameters
 
-    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::AbstractMathProgSolver; kwargs...)
-        return new{typeof(lpsolver)}(variant,lpsolver,kwargs)
+    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, kwargs...)
+        return new(variant,lpsolver,subsolver,crash,kwargs)
     end
 end
 LShapedSolver(lpsolver::AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
 
-function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model; crash::Crash.CrashMethod = Crash.None(), subsolver = solver.lpsolver)
-    x₀ = crash(stochasticprogram,solver.lpsolver)
+function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
+    x₀ = solver.crash(stochasticprogram,solver.lpsolver)
     if solver.variant == :ls
-        return LShaped(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return LShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dls
-        return DLShaped(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return DLShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :rd
-        return Regularized(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return Regularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :drd
-        return DRegularized(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return DRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :tr
-        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dtr
-        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :lv
-        return LevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dlv
-        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,subsolver; solver.parameters...)
+        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end
