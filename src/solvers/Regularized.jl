@@ -14,6 +14,7 @@ end
     σ̅::T = 4.0
     σ̲::T = 0.5
     log::Bool = true
+    autotune::Bool = false
 end
 
 struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}

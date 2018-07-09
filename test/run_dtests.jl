@@ -10,13 +10,13 @@ using Gurobi
 
 solver = GurobiSolver(OutputFlag=0)
 dlsolvers = [(LShapedSolver(:dls,solver,κ=1.0,log=false),"L-Shaped"),
-             (LShapedSolver(:drd,solver,crash=Crash.EVP(),σ=60.0,σ̲=10.0,σ̅=200.0,κ=0.8,log=false),"RD L-Shaped"),
-             (LShapedSolver(:dtr,solver,crash=Crash.EVP(),Δ=50.0,Δ̅=100.0,κ=0.8,log=false),"TR L-Shaped"),
-             (LShapedSolver(:dlv,solver,crash=Crash.EVP(),λ=1.0,κ=0.8,log=false),"Leveled L-Shaped")]
+             (LShapedSolver(:drd,solver,crash=Crash.EVP(),autotune=true,κ=0.8,log=false),"RD L-Shaped"),
+             (LShapedSolver(:dtr,solver,crash=Crash.EVP(),autotune=true,κ=0.8,log=false),"TR L-Shaped"),
+             (LShapedSolver(:dlv,solver,crash=Crash.EVP(),λ=0.6,κ=0.8,log=false),"Leveled L-Shaped")]
 lsolvers = [(LShapedSolver(:ls,solver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,solver,crash=Crash.EVP(),σ=60.0,σ̲=10.0,σ̅=200.0,log=false),"RD L-Shaped"),
-            (LShapedSolver(:tr,solver,crash=Crash.EVP(),Δ=50.0,Δ̅=100.0,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,solver,crash=Crash.EVP(),λ=1.0,log=false),"Leveled L-Shaped")]
+            (LShapedSolver(:rd,solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:tr,solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,solver,crash=Crash.EVP(),λ=0.6,log=false),"Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
 info("Loading test problems...")

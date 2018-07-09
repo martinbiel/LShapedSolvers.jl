@@ -93,6 +93,12 @@ end
 @define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
+    if lshaped.parameters.autotune
+        σ̅ = norm(lshaped.x)
+        σ̲ = 0.1*norm(lshaped.x)
+        σ = mean([σ̅,σ̲])
+        @pack lshaped.parameters = σ,σ̅,σ̲
+    end
     lshaped.solverdata.σ = lshaped.parameters.σ
     push!(lshaped.σ_history,lshaped.solverdata.σ)
 
