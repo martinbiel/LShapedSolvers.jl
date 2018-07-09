@@ -24,6 +24,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
 
     # Master
     mastersolver::M
+    mastervector::A
     c::A
     x::A
     Q_history::A
@@ -71,6 +72,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
+        mastervector = convert(AbstractVector{T},copy(ξ₀))
         x₀_ = convert(AbstractVector{T},copy(ξ₀))
         ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(x₀_)
@@ -83,6 +85,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         lshaped = new{T,A,M,S}(model,
                                DRegularizedData{T}(),
                                msolver,
+                               mastervector,
                                c_,
                                x₀_,
                                A(),

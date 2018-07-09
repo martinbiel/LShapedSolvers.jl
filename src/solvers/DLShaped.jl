@@ -17,6 +17,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
 
     # Master
     mastersolver::M
+    mastervector::A
     c::A
     x::A
     Q_history::A
@@ -54,6 +55,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         T = promote_type(eltype(x₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
+        mastervector = convert(AbstractVector{T},copy(x₀))
         x₀_ = convert(AbstractVector{T},copy(x₀))
         A = typeof(x₀_)
 
@@ -65,6 +67,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         lshaped = new{T,A,M,S}(model,
                                DLShapedData{T}(),
                                msolver,
+                               mastervector,
                                c_,
                                x₀_,
                                A(),

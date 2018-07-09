@@ -15,6 +15,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
 
     # Master
     mastersolver::M
+    mastervector::A
     c::A
     x::A
     Q_history::A
@@ -44,6 +45,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
         x₀_ = convert(AbstractVector{T},copy(x₀))
+        mastervector = convert(AbstractVector{T},copy(x₀))
         A = typeof(x₀_)
 
         msolver = LQSolver(model,mastersolver)
@@ -54,6 +56,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
         lshaped = new{T,A,M,S}(model,
                                LShapedData{T}(),
                                msolver,
+                               mastervector,
                                c_,
                                x₀_,
                                A(),

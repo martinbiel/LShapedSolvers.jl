@@ -22,6 +22,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     # Master
     mastersolver::M
+    mastervector::A
     c::A
     x::A
 
@@ -61,6 +62,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         T = promote_type(eltype(ξ₀),Float32)
         c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
         c_ *= model.objSense == :Min ? 1 : -1
+        mastervector = convert(AbstractVector{T},copy(ξ₀))
         x₀_ = convert(AbstractVector{T},copy(ξ₀))
         ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
         A = typeof(ξ₀_)
@@ -73,6 +75,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         lshaped = new{T,A,M,S}(model,
                                RegularizedData{T}(),
                                msolver,
+                               mastervector,
                                c_,
                                x₀_,
                                convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),

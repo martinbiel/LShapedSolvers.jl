@@ -292,7 +292,7 @@ e
         error("The level set algorithm requires a solver that handles quadratic objectives")
     end
     # Solve projection problem
-    lshaped.projectionsolver(lshaped.x)
+    lshaped.projectionsolver(lshaped.mastervector)
     if status(lshaped.projectionsolver) == :Infeasible
         error("Projection problem is infeasible, aborting procedure.")
     end

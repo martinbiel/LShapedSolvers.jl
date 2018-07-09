@@ -26,6 +26,7 @@ end
 function update_solution!(lshaped::AbstractLShapedSolver)
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.mastersolver)
+    lshaped.mastervector[:] = x
     lshaped.x[1:ncols] = x[1:ncols]
     lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
     nothing
@@ -68,6 +69,7 @@ function prepare_master!(lshaped::AbstractLShapedSolver)
     # θs
     for i = 1:lshaped.nscenarios
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        push!(lshaped.mastervector,-1e10)
     end
 end
 
@@ -100,9 +102,22 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     # Update the optimization vector
     take_step!(lshaped)
     # Resolve master
-    lshaped.mastersolver(lshaped.x)
+    try
+        lshaped.mastersolver(lshaped.mastervector)
+    catch
+        @unpack τ = lshaped.parameters
+        @unpack Q,θ = lshaped.solverdata
+        gap = abs(θ-Q)/(1+abs(Q))
+        if gap <= 10*τ
+            warn("Master problem could not be solved, but the requested tolerance has almost been reached.")
+            return :Optimal
+        else
+            warn("Master problem could not be solved. Aborting procedure.")
+            return :Unsolved
+        end
+    end
     if status(lshaped.mastersolver) == :Infeasible
-        warn("Master is infeasible, aborting procedure.")
+        warn("Master is infeasible. Aborting procedure.")
         return :Infeasible
     end
     # Update master solution
