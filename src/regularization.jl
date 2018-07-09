@@ -95,7 +95,7 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
         σ̅ = norm(lshaped.x)
-        σ̲ = 0.1*norm(lshaped.x)
+        σ̲ = 1.0
         σ = mean([σ̅,σ̲])
         @pack lshaped.parameters = σ,σ̅,σ̲
     end

@@ -105,16 +105,8 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     try
         lshaped.mastersolver(lshaped.mastervector)
     catch
-        @unpack τ = lshaped.parameters
-        @unpack Q,θ = lshaped.solverdata
-        gap = abs(θ-Q)/(1+abs(Q))
-        if gap <= 10*τ
-            warn("Master problem could not be solved, but the requested tolerance has almost been reached.")
-            return :Optimal
-        else
-            warn("Master problem could not be solved. Aborting procedure.")
-            return :Unsolved
-        end
+        # Master problem could not be solved for some reason. Try to continue
+        return :Valid
     end
     if status(lshaped.mastersolver) == :Infeasible
         warn("Master is infeasible. Aborting procedure.")
