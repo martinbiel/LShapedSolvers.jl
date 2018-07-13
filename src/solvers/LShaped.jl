@@ -5,7 +5,7 @@
 end
 
 @with_kw mutable struct LShapedParameters{T <: Real}
-    τ::T = 1e-6
+    τ::T = 1e-5
     log::Bool = true
 end
 

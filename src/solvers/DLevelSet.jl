@@ -8,7 +8,7 @@ end
 
 @with_kw mutable struct DLevelSetParameters{T <: Real}
     κ::T = 0.3
-    τ::T = 1e-6
+    τ::T = 1e-5
     λ::T = 0.5
     log::Bool = true
 end

@@ -10,8 +10,8 @@ function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathPr
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
-    init_solver!(lshaped)
     init_subproblems!(lshaped,subsolver)
+    init_solver!(lshaped)
 end
 # ======================================================================== #
 
@@ -105,8 +105,11 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     try
         lshaped.mastersolver(lshaped.mastervector)
     catch
-        # Master problem could not be solved for some reason. Try to continue
-        return :Valid
+        # Master problem could not be solved for some reason.
+        @unpack Q,θ = lshaped.solverdata
+        gap = abs(θ-Q)/(abs(Q)+1e-10)
+        warn("Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure.")
+        return :StoppedPrematurely
     end
     if status(lshaped.mastersolver) == :Infeasible
         warn("Master is infeasible. Aborting procedure.")
@@ -138,12 +141,12 @@ function log!(lshaped::AbstractLShapedSolver)
 
     log_regularization!(lshaped)
 
-    gap = abs(θ-Q)/(1+abs(Q))
     if lshaped.parameters.log
-        ProgressMeter.update!(lshaped.progress,gap,
+        current_gap = gap(lshaped)
+        ProgressMeter.update!(lshaped.progress,current_gap,
                               showvalues = [
                                   ("Objective",Q),
-                                  ("Gap",gap),
+                                  ("Gap",current_gap),
                                   ("Number of cuts",length(lshaped.cuts))
                               ])
     end
@@ -159,8 +162,8 @@ end
 
 function check_optimality(lshaped::AbstractLShapedSolver)
     @unpack τ = lshaped.parameters
-    @unpack Q,θ = lshaped.solverdata
-    return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
+    @unpack θ = lshaped.solverdata
+    return θ > -Inf && gap(lshaped) <= τ
 end
 # ======================================================================== #
 

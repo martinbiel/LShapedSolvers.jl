@@ -31,6 +31,20 @@ end
     end
 end
 
+@define_traitfn UsesRegularization gap(lshaped::AbstractLShapedSolver) = begin
+    function gap(lshaped::AbstractLShapedSolver,!UsesRegularization)
+        @unpack τ = lshaped.parameters
+        @unpack Q,θ = lshaped.solverdata
+        return abs(θ-Q)/(abs(Q)+1e-10)
+    end
+
+    function gap(lshaped::AbstractLShapedSolver,UsesRegularization)
+        @unpack τ = lshaped.parameters
+        @unpack Q̃,θ = lshaped.solverdata
+        return abs(θ-Q̃)/(abs(Q̃)+1e-10)
+    end
+end
+
 @define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = begin
     function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,!UsesRegularization)
         nothing
@@ -95,8 +109,8 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
         σ̅ = norm(lshaped.x)
-        σ̲ = 1.0
-        σ = mean([σ̅,σ̲])
+        σ̲ = 0.005*norm(lshaped.x)
+        σ = σ̲
         @pack lshaped.parameters = σ,σ̅,σ̲
     end
     lshaped.solverdata.σ = lshaped.parameters.σ
@@ -118,22 +132,30 @@ end
 end
 
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    @unpack τ,σ̅,σ̲ = lshaped.parameters
-    if Q + τ*(1+abs(Q)) <= Q̃
+    @unpack Q,Q̃,θ,σ = lshaped.solverdata
+    @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
+    need_update = false
+    if abs(θ-Q) <= τ*(1+abs(θ)) || lshaped.solverdata.major_iterations == 0
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
-        if abs(Q - Q̃) <= 0.5*(Q̃-θ)
-            # Enlarge the trust-region radius
-            lshaped.solverdata.σ = min(σ̅,lshaped.solverdata.σ*2)
-            update_objective!(lshaped)
-        end
+        need_update = true
         lshaped.solverdata.major_iterations += 1
     else
-        lshaped.solverdata.σ *= 0.5
-        lshaped.solverdata.σ = max(σ̲,lshaped.solverdata.σ)
-        update_objective!(lshaped)
         lshaped.solverdata.minor_iterations += 1
+    end
+    new_σ = if Q + τ <= (1-γ)*Q̃ + γ*θ
+        min(σ̅,2*σ)
+    elseif Q - τ >= γ*Q̃ + (1-γ)*θ
+        max(σ̲,0.5*σ)
+    else
+        σ
+    end
+    if abs(new_σ-σ) > τ
+        need_update = true
+    end
+    lshaped.solverdata.σ = new_σ
+    if need_update
+        update_objective!(lshaped)
     end
     nothing
 end
@@ -264,7 +286,7 @@ end
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,HasLevels)
     @unpack Q,Q̃ = lshaped.solverdata
     @unpack τ = lshaped.parameters
-    if Q + τ*(1+abs(Q)) <= Q̃
+    if Q + τ <= Q̃
         lshaped.solverdata.Q̃ = Q
     end
     nothing
@@ -277,13 +299,15 @@ end
 @implement_traitfn function project!(lshaped::AbstractLShapedSolver,HasLevels)
     @unpack θ,Q̃ = lshaped.solverdata
     @unpack λ = lshaped.parameters
+    # Update reference
+    lshaped.ξ[:] = lshaped.x[:]
     # Copy current master problem (TODO: Rewrite with MathOptInterface)
     lshaped.projectionsolver.lqmodel = copy(lshaped.mastersolver.lqmodel)
     # Update level
     c = sparse(getobj(lshaped.projectionsolver.lqmodel))
-    L = (1-λ)*Q̃ + λ*θ
+    L = (1-λ)*θ + λ*Q̃
     addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
-e
+
     # Update regularizer
     q = -copy(lshaped.ξ)
     append!(q,zeros(lshaped.nscenarios))
@@ -305,6 +329,8 @@ e
     # Update master solution
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.projectionsolver)
+    lshaped.mastervector[:] = x
     lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.ξ[:] = lshaped.x[:]
+    lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
+    lshaped.solverdata.θ = calculate_estimate(lshaped)
 end

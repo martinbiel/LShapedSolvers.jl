@@ -46,6 +46,7 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
     # First stage
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
     stochasticprogram.objVal = lshaped.solverdata.Q
+    stochasticprogram.objVal *= stochasticprogram.objSense == :Min ? 1 : -1
     stochasticprogram.colVal = copy(lshaped.x)
     stochasticprogram.redCosts = try
         getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]

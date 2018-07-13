@@ -325,6 +325,7 @@ function fill_submodel!(submodel::JuMP.Model,x::AbstractVector,μ::AbstractVecto
     submodel.redCosts = μ
     submodel.linconstrDuals = λ
     submodel.objVal = C
+    submodel.objVal *= submodel.objSense == :Min ? 1 : -1
 end
 
 function fill_submodel!(submodel::JuMP.Model,subproblem::SubProblem)
@@ -358,8 +359,9 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         try
             lshaped.mastersolver(lshaped.mastervector)
         catch
-            # Master problem could not be solved for some reason. Try to continue
-            return :Valid
+            # Master problem could not be solved for some reason.
+            warn("Master problem could not be solved. Returned $(status(lshaped.mastersolver)). Aborting procedure.")
+            return :StoppedPrematurely
         end
         if status(lshaped.mastersolver) == :Infeasible
             warn("Master is infeasible, aborting procedure.")
