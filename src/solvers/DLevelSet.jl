@@ -98,15 +98,8 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
                                A(),
                                DLevelSetParameters{T}(;kw...),
                                ProgressThresh(1.0, "Distributed Leveled L-Shaped Gap "))
-        lshaped.progress.thresh = lshaped.parameters.τ
-        push!(lshaped.subobjectives,zeros(n))
-        push!(lshaped.finished,0)
-        push!(lshaped.Q_history,Inf)
-        push!(lshaped.Q̃_history,Inf)
-        push!(lshaped.θ_history,-Inf)
-
+        # Initialize solver
         init!(lshaped,subsolver)
-
         return lshaped
     end
 end

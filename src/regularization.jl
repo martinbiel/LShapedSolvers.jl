@@ -133,7 +133,7 @@ end
 
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
     @unpack Q,Q̃,θ,σ = lshaped.solverdata
-    @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
+    @unpack τ,σ̅,σ̲ = lshaped.parameters
     need_update = false
     if abs(θ-Q) <= τ*(1+abs(θ)) || lshaped.solverdata.major_iterations == 0
         lshaped.ξ[:] = lshaped.x[:]

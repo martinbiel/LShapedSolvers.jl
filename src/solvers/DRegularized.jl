@@ -11,7 +11,7 @@ end
 
 @with_kw mutable struct DRegularizedParameters{T <: Real}
     κ::T = 0.3
-    τ::T = 1e-5
+    τ::T = 1e-6
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
@@ -108,15 +108,8 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                A(),
                                DRegularizedParameters{T}(;kw...),
                                ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
-        lshaped.progress.thresh = lshaped.parameters.τ
-        push!(lshaped.subobjectives,zeros(n))
-        push!(lshaped.finished,0)
-        push!(lshaped.Q_history,Inf)
-        push!(lshaped.Q̃_history,Inf)
-        push!(lshaped.θ_history,-Inf)
-
+        # Initialize solver
         init!(lshaped,subsolver)
-
         return lshaped
     end
 end
