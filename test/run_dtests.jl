@@ -9,15 +9,15 @@ using StochasticPrograms
 using Gurobi
 
 τ = 1e-5
-lpsolver = GurobiSolver(OutputFlag=0)
-dlsolvers = [(LShapedSolver(:dls,lpsolver,log=false),"L-Shaped"),
-             (LShapedSolver(:drd,lpsolver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-             (LShapedSolver(:dtr,lpsolver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-             (LShapedSolver(:dlv,lpsolver,log=false),"Leveled L-Shaped")]
-lsolvers = [(LShapedSolver(:ls,lpsolver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,lpsolver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-            (LShapedSolver(:tr,lpsolver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,lpsolver,crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
+reference_solver = GurobiSolver(OutputFlag=0)
+dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
+             (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+             (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped")]
+lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
+            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String,Bool}}()
 info("Loading test problems...")
@@ -30,7 +30,7 @@ include("dayahead.jl")
 
 info("Test problems loaded. Starting test sequence.")
 @testset "Distributed $lsname Solver with Distributed Data: $name" for (lsolver,lsname) in dlsolvers, (sp,name,flatobj) in problems
-    solve(sp,solver=lpsolver)
+    solve(sp,solver=reference_solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver)
@@ -44,7 +44,7 @@ end
     sp_nondist = StochasticProgram(first_stage_data(sp),second_stage_data(sp),scenarios(sp),procs=[1])
     transfer_model!(stochastic(sp_nondist),stochastic(sp))
     generate!(sp_nondist)
-    solve(sp_nondist,solver=lpsolver)
+    solve(sp_nondist,solver=reference_solver)
     x̄ = copy(sp_nondist.colVal)
     Q̄ = copy(sp_nondist.objVal)
     solve(sp_nondist,solver=lsolver)
@@ -55,7 +55,7 @@ end
 end
 
 @testset "$lsname Solver with Distributed Data: $name" for (lsolver,lsname) in lsolvers, (sp,name,flatobj) in problems
-    solve(sp,solver=lpsolver)
+    solve(sp,solver=reference_solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver)

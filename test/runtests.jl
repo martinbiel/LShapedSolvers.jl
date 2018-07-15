@@ -5,11 +5,11 @@ using StochasticPrograms
 using Gurobi
 
 τ = 1e-5
-lpsolver = GurobiSolver(OutputFlag=0)
-lsolvers = [(LShapedSolver(:ls,lp_solver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-            (LShapedSolver(:tr,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,lp_solver,crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
+reference_solver = GurobiSolver(OutputFlag=0)
+lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
+            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String,Bool}}()
 info("Loading test problems...")
@@ -22,7 +22,7 @@ include("dayahead.jl")
 
 info("Test problems loaded. Starting test sequence.")
 @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name,flatobj) in problems
-    solve(sp,solver=lpsolver)
+    solve(sp,solver=reference_solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver)
