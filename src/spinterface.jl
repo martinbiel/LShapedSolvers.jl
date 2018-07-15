@@ -45,8 +45,6 @@ end
 function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.Model)
     # First stage
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
-    stochasticprogram.objVal = lshaped.solverdata.Q
-    stochasticprogram.objVal *= stochasticprogram.objSense == :Min ? 1 : -1
     stochasticprogram.colVal = copy(lshaped.x)
     stochasticprogram.redCosts = try
         getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
@@ -58,7 +56,8 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
     catch
         fill(NaN, nrows)
     end
-
     # Second stage
     fill_submodels!(lshaped,scenarioproblems(stochasticprogram))
+    # Now safe to generate the objective value of the stochastic program
+    stochasticprogram.objVal = StochasticPrograms.calculate_objective_value(stochasticprogram)
 end

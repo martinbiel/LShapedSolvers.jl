@@ -23,8 +23,8 @@ include("dayahead.jl")
 info("Test problems loaded. Starting test sequence.")
 @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name,flatobj) in problems
     solve(sp,solver=reference_solver)
-    x̄ = copy(sp.colVal)
-    Q̄ = copy(sp.objVal)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
     solve(sp,solver=lsolver)
     if !flatobj
         @test norm(optimal_decision(sp) - x̄) <= τ*(norm(x̄)+1e-10)
