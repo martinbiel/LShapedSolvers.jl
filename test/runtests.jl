@@ -4,33 +4,33 @@ using JuMP
 using StochasticPrograms
 using Gurobi
 
-# τ = 1e-5
-# lpsolver = GurobiSolver(OutputFlag=0)
-# lsolvers = [(LShapedSolver(:ls,lp_solver,log=false),"L-Shaped"),
-#             (LShapedSolver(:rd,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-#             (LShapedSolver(:tr,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-#             (LShapedSolver(:lv,lp_solver,crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
+τ = 1e-5
+lpsolver = GurobiSolver(OutputFlag=0)
+lsolvers = [(LShapedSolver(:ls,lp_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:rd,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:tr,lp_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,lp_solver,crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
 
-# problems = Vector{Tuple{JuMP.Model,String,Bool}}()
-# info("Loading test problems...")
-# info("Loading simple...")
-# include("simple.jl")
-# info("Loading farmer...")
-# include("farmer.jl")
-# info("Loading day-ahead problems...")
-# include("dayahead.jl")
+problems = Vector{Tuple{JuMP.Model,String,Bool}}()
+info("Loading test problems...")
+info("Loading simple...")
+include("simple.jl")
+info("Loading farmer...")
+include("farmer.jl")
+info("Loading day-ahead problems...")
+include("dayahead.jl")
 
-# info("Test problems loaded. Starting test sequence.")
-# @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name,flatobj) in problems
-#     solve(sp,solver=lpsolver)
-#     x̄ = copy(sp.colVal)
-#     Q̄ = copy(sp.objVal)
-#     solve(sp,solver=lsolver)
-#     if !flatobj
-#         @test norm(optimal_decision(sp) - x̄) <= τ*(norm(x̄)+1e-10)
-#     end
-#     @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
-# end
+info("Test problems loaded. Starting test sequence.")
+@testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name,flatobj) in problems
+    solve(sp,solver=lpsolver)
+    x̄ = copy(sp.colVal)
+    Q̄ = copy(sp.objVal)
+    solve(sp,solver=lsolver)
+    if !flatobj
+        @test norm(optimal_decision(sp) - x̄) <= τ*(norm(x̄)+1e-10)
+    end
+    @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
+end
 
 info("Starting distributed tests...")
 
