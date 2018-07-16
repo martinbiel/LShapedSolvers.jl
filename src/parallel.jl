@@ -115,20 +115,18 @@ end
 
 @define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,!IsParallel)
-        active_workers = Vector{Future}(length(scenarioproblems))
+        active_workers = Vector{Future}(nscenarios(lshaped))
         j = 1
-        for w = 1:length(scenarioproblems)
+        for w in 1:length(scenarioproblems)
             n = remotecall_fetch((sp)->length(fetch(sp).problems),w+1,scenarioproblems[w])
-            active_workers[w] = remotecall((subproblems,sp) -> begin
-                                               scenarioproblems = fetch(sp)
-                                               for (i,submodel) in enumerate(scenarioproblems.problems)
-                                                 fill_submodel!(submodel,subproblems[i])
-                                               end
-                                             end,
-                                             w+1,
-                                             lshaped.subproblems[j:n],
-                                             scenarioproblems[w])
-            j += n
+            for i in 1:n
+                active_workers[j] = remotecall((sp,i,x,μ,λ,C) -> fill_submodel!(fetch(sp).problems[i],x,μ,λ,C),
+                                               w+1,
+                                               scenarioproblems[w],
+                                               i,
+                                               get_solution(lshaped.subproblems[j])...)
+                j += 1
+            end
         end
         @async map(wait,active_workers)
     end
@@ -368,8 +366,6 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
                 map(w->put!(w,-1),lshaped.work)
                 # Final log
                 log!(lshaped)
-                # lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
-                # lshaped.Q_history[t] = lshaped.solverdata.Q
                 return :Optimal
             end
         end
@@ -393,7 +389,10 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         end
         # Update master solution
         update_solution!(lshaped)
-        lshaped.θ_history[t] = calculate_estimate(lshaped)
+        # Project (if applicable)
+        lshaped.solverdata.θ = calculate_estimate(lshaped)
+        project!(lshaped)
+        lshaped.θ_history[t] = lshaped.solverdata.θ
         # Log progress at current timestamp
         log_regularization!(lshaped,t)
         # Send new decision vector to workers

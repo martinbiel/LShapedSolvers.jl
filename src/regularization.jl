@@ -293,7 +293,8 @@ end
 end
 
 @implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},HasLevels)
-    #addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...) TODO: Rewrite with MathOptInterface
+    addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
+    # TODO: Rewrite with MathOptInterface
 end
 
 @implement_traitfn function project!(lshaped::AbstractLShapedSolver,HasLevels)
@@ -301,13 +302,18 @@ end
     @unpack λ = lshaped.parameters
     # Update reference
     lshaped.ξ[:] = lshaped.x[:]
-    # Copy current master problem (TODO: Rewrite with MathOptInterface)
-    lshaped.projectionsolver.lqmodel = copy(lshaped.mastersolver.lqmodel)
-    # Update level
-    c = sparse(getobj(lshaped.projectionsolver.lqmodel))
+    # Update level (TODO: Rewrite with MathOptInterface)
+    c = sparse(getobj(lshaped.mastersolver.lqmodel))
     L = (1-λ)*θ + λ*Q̃
-    addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
-
+    push!(lshaped.levels,L)
+    if lshaped.solverdata.levelindex == -1
+        addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
+        lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
+    else
+        delconstrs!(lshaped.projectionsolver.lqmodel,lshaped.solverdata.levelindex)
+        addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
+        lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
+    end
     # Update regularizer
     q = -copy(lshaped.ξ)
     append!(q,zeros(lshaped.nscenarios))
@@ -333,4 +339,5 @@ end
     lshaped.x[1:ncols] = x[1:ncols]
     lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
     lshaped.solverdata.θ = calculate_estimate(lshaped)
+    nothing
 end

@@ -4,6 +4,7 @@
     θ::T = -1e10
     timestamp::Int = 1
     iterations::Int = 0
+    levelindex::Int = -1
 end
 
 @with_kw mutable struct DLevelSetParameters{T <: Real}
