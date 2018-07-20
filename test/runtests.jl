@@ -8,8 +8,10 @@ using Gurobi
 reference_solver = GurobiSolver(OutputFlag=0)
 lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:lrd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"Linearized RD L-Shaped"),
             (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Leveled L-Shaped"),
+            (LShapedSolver(:llv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String,Bool}}()
 info("Loading test problems...")

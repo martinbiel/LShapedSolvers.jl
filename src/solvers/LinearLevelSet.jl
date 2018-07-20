@@ -9,7 +9,7 @@ end
 
 @with_kw mutable struct LinearLevelSetParameters{T <: Real}
     τ::T = 1e-6
-    λ::T = 0.5
+    λ::T = 0.9
     log::Bool = true
 end
 

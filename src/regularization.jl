@@ -107,9 +107,9 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
         if hastrait(lshaped,LinearizedQuadraticPenalty)
-            σ̅ = 0.05*norm(lshaped.x,Inf)
-            σ̲ = 0.005*norm(lshaped.x,Inf)
-            σ = σ̲
+            σ̅ = 0.01*norm(lshaped.x,Inf)
+            σ̲ = 0.001*norm(lshaped.x,Inf)
+            σ = 0.005*norm(lshaped.x,Inf)
             @pack lshaped.parameters = σ,σ̅,σ̲
         else
             σ̅ = norm(lshaped.x)
@@ -318,7 +318,7 @@ end
     # Update regularizer
     add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+lshaped.nscenarios),1.0,lshaped.ξ)
     # Solve projection problem
-    solve_qp!(lshaped,lshaped.projectionsolver)
+    solve_problem!(lshaped,lshaped.projectionsolver)
     if status(lshaped.projectionsolver) == :Infeasible
         error("Projection problem is infeasible, aborting procedure.")
     end
