@@ -106,13 +106,25 @@ end
 # ------------------------------------------------------------
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
-        σ̅ = norm(lshaped.x)
-        σ̲ = 0.005*norm(lshaped.x)
-        σ = σ̲
-        @pack lshaped.parameters = σ,σ̅,σ̲
+        if hastrait(lshaped,LinearizedQuadraticPenalty)
+            σ̅ = 0.05*norm(lshaped.x,Inf)
+            σ̲ = 0.005*norm(lshaped.x,Inf)
+            σ = σ̲
+            @pack lshaped.parameters = σ,σ̅,σ̲
+        else
+            σ̅ = norm(lshaped.x)
+            σ̲ = 0.005*norm(lshaped.x)
+            σ = σ̲
+            @pack lshaped.parameters = σ,σ̅,σ̲
+        end
     end
     lshaped.solverdata.σ = lshaped.parameters.σ
     push!(lshaped.σ_history,lshaped.solverdata.σ)
+
+    if hastrait(lshaped,LinearizedQuadraticPenalty)
+        # t
+        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+    end
 
     c = copy(lshaped.c)
     append!(c,fill(1.0,lshaped.nscenarios))
@@ -306,9 +318,7 @@ end
     # Update regularizer
     add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+lshaped.nscenarios),1.0,lshaped.ξ)
     # Solve projection problem
-    hastrait(lshaped,LinearizedQuadraticPenalty) && push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
-    lshaped.projectionsolver(lshaped.mastervector)
-    hastrait(lshaped,LinearizedQuadraticPenalty) && pop!(lshaped.mastervector)
+    solve_qp!(lshaped,lshaped.projectionsolver)
     if status(lshaped.projectionsolver) == :Infeasible
         error("Projection problem is infeasible, aborting procedure.")
     end
@@ -351,16 +361,28 @@ end
                 addconstr!(model,[i,tidx],[-α,1],-α*ξ[i],Inf)
                 addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
-            lshaped.solverdata.regularizerindex = lshaped.solverdata.levelindex+1
+            lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
         else
             for i in j:j+ncols
-                delconstrs!(lshaped.projectionsolver.lqmodel,i)
+                delconstrs!(model,i)
             end
             for i in 1:ncols
-                addconstr!(lshaped.projectionsolver.lqmodel,[i,tidx],[-α,1],-ξ[i],Inf)
-                addconstr!(lshaped.projectionsolver.lqmodel,[i,tidx],[-α,-1],-Inf,-ξ[i])
+                addconstr!(model,[i,tidx],[-α,1],-ξ[i],Inf)
+                addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
-            lshaped.solverdata.regularizerindex = lshaped.solverdata.levelindex+1
+            lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
         end
+    end
+end
+
+@define_traitfn LinearizedQuadraticPenalty solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver) = begin
+    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,!LinearizedQuadraticPenalty)
+        solver(lshaped.mastervector)
+    end
+
+    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,LinearizedQuadraticPenalty)
+        push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
+        solver(lshaped.mastervector)
+        pop!(lshaped.mastervector)
     end
 end

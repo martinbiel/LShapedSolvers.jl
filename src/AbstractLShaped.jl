@@ -26,9 +26,9 @@ end
 function update_solution!(lshaped::AbstractLShapedSolver)
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.mastersolver)
-    lshaped.mastervector[:] = x
+    lshaped.mastervector[:] = x[1:ncols+lshaped.nscenarios]
     lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
+    lshaped.θs[:] = x[ncols+1:ncols+lshaped.nscenarios]
     nothing
 end
 
@@ -109,7 +109,7 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     end
     # Resolve master
     try
-        lshaped.mastersolver(lshaped.mastervector)
+        solve_problem!(lshaped,lshaped.mastersolver)
     catch
         # Master problem could not be solved for some reason.
         @unpack Q,θ = lshaped.solverdata
