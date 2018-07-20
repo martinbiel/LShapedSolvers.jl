@@ -374,7 +374,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
     t = lshaped.solverdata.timestamp
     if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
         try
-            solve_problem!(lshaped,lshaper.mastersolver)
+            solve_problem!(lshaped,lshaped.mastersolver)
         catch
             # Master problem could not be solved for some reason.
             @unpack Q,θ = lshaped.solverdata

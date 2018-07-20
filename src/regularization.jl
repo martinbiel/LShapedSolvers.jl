@@ -120,12 +120,12 @@ end
     end
     lshaped.solverdata.σ = lshaped.parameters.σ
     push!(lshaped.σ_history,lshaped.solverdata.σ)
-
+    # Add ∞-norm auxilliary variable
     if hastrait(lshaped,LinearizedQuadraticPenalty)
         # t
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
     end
-
+    # Add quadratic penalty
     c = copy(lshaped.c)
     append!(c,fill(1.0,lshaped.nscenarios))
     add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
@@ -361,16 +361,18 @@ end
                 addconstr!(model,[i,tidx],[-α,1],-α*ξ[i],Inf)
                 addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
-            lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
         else
-            for i in j:j+ncols
+            for i in j:j+2*ncols-1
                 delconstrs!(model,i)
             end
             for i in 1:ncols
                 addconstr!(model,[i,tidx],[-α,1],-ξ[i],Inf)
                 addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
-            lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
+        end
+        lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
+        if hastrait(lshaped,HasLevels)
+            lshaped.solverdata.regularizerindex += 1
         end
     end
 end

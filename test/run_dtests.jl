@@ -12,12 +12,16 @@ using Gurobi
 reference_solver = GurobiSolver(OutputFlag=0)
 dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
              (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+             (LShapedSolver(:dlrd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"Linearized RD L-Shaped"),
              (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-             (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped")]
+             (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped"),
+             (LShapedSolver(:dllv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped")]
 lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:lrd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"Linearized RD L-Shaped"),
             (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),log=false),"Leveled L-Shaped")]
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped"),
+            (LShapedSolver(:llv,GurobiSolver(OutputFlag=0),log=false),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String,Bool}}()
 info("Loading test problems...")
@@ -25,8 +29,8 @@ info("Loading simple...")
 include("simple.jl")
 info("Loading farmer...")
 include("farmer.jl")
-info("Loading day-ahead problems...")
-include("dayahead.jl")
+# info("Loading day-ahead problems...")
+# include("dayahead.jl")
 
 info("Test problems loaded. Starting test sequence.")
 @testset "Distributed $lsname Solver with Distributed Data: $name" for (lsolver,lsname) in dlsolvers, (sp,name,flatobj) in problems

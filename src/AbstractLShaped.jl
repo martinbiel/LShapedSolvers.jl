@@ -101,12 +101,6 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     lshaped.solverdata.Q = Q
     # Update the optimization vector
     take_step!(lshaped)
-    # Check optimality here if level sets are used
-    if hastrait(lshaped,HasLevels) && check_optimality(lshaped)
-        # Optimal, final log
-        log!(lshaped)
-        return :Optimal
-    end
     # Resolve master
     try
         solve_problem!(lshaped,lshaped.mastersolver)
