@@ -4,7 +4,7 @@
 @define_trait UsesRegularization = begin
     IsRegularized  # Algorithm uses the regularized decomposition method of Ruszczyński
     HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
-    HasLevels      # Algorithm uses the level set method of Lemarcheral
+    HasLevels      # Algorithm uses the level set method of Fábián/Szőke
 end
 
 @define_traitfn UsesRegularization init_solver!(lshaped::AbstractLShapedSolver) = begin
@@ -104,8 +104,6 @@ end
 
 # Is Regularized
 # ------------------------------------------------------------
-@define_traitfn IsRegularized update_objective!(lshaped::AbstractLShapedSolver)
-
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
         σ̅ = norm(lshaped.x)
@@ -116,7 +114,9 @@ end
     lshaped.solverdata.σ = lshaped.parameters.σ
     push!(lshaped.σ_history,lshaped.solverdata.σ)
 
-    update_objective!(lshaped)
+    c = copy(lshaped.c)
+    append!(c,fill(1.0,lshaped.nscenarios))
+    add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
 end
 
 @implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver,IsRegularized)
@@ -155,27 +155,11 @@ end
     end
     lshaped.solverdata.σ = new_σ
     if need_update
-        update_objective!(lshaped)
+        c = copy(lshaped.c)
+        append!(c,fill(1.0,lshaped.nscenarios))
+        add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
     end
     nothing
-end
-
-@implement_traitfn function update_objective!(lshaped::AbstractLShapedSolver,IsRegularized)
-    # Linear regularizer penalty
-    c = copy(lshaped.c)
-    c -= (1/lshaped.solverdata.σ)*lshaped.ξ
-    append!(c,fill(1.0,lshaped.nscenarios))
-    setobj!(lshaped.mastersolver.lqmodel,c)
-
-    # Quadratic regularizer penalty
-    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = fill(1/lshaped.solverdata.σ,length(lshaped.ξ))
-    append!(qval,zeros(lshaped.nscenarios))
-    if applicable(setquadobj!,lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-        setquadobj!(lshaped.mastersolver.lqmodel,qidx,qidx,qval)
-    else
-        error("The regularized decomposition algorithm requires a solver that handles quadratic objectives")
-    end
 end
 
 # HasTrustRegion
@@ -269,6 +253,10 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasLevels)
     # θs
     for i = 1:lshaped.nscenarios
+        addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,0.0)
+    end
+    if hastrait(lshaped,LinearizedQuadraticPenalty)
+        # t
         addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
     end
 end
@@ -288,6 +276,7 @@ end
     @unpack τ = lshaped.parameters
     if Q + τ <= Q̃
         lshaped.solverdata.Q̃ = Q
+        lshaped.ξ[:] = lshaped.x[:]
     end
     nothing
 end
@@ -301,7 +290,7 @@ end
     @unpack θ,Q̃ = lshaped.solverdata
     @unpack λ = lshaped.parameters
     # Update reference
-    lshaped.ξ[:] = lshaped.x[:]
+    # lshaped.ξ[:] = lshaped.x[:]
     # Update level (TODO: Rewrite with MathOptInterface)
     c = sparse(getobj(lshaped.mastersolver.lqmodel))
     L = (1-λ)*θ + λ*Q̃
@@ -315,29 +304,63 @@ end
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
     end
     # Update regularizer
-    q = -copy(lshaped.ξ)
-    append!(q,zeros(lshaped.nscenarios))
-    setobj!(lshaped.projectionsolver.lqmodel,q)
-    # Quadratic regularizer penalty
-    qidx = collect(1:length(lshaped.ξ)+lshaped.nscenarios)
-    qval = ones(length(lshaped.ξ))
-    append!(qval,zeros(lshaped.nscenarios))
-    if applicable(setquadobj!,lshaped.projectionsolver.lqmodel,qidx,qidx,qval)
-        setquadobj!(lshaped.projectionsolver.lqmodel,qidx,qidx,qval)
-    else
-        error("The level set algorithm requires a solver that handles quadratic objectives")
-    end
+    add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+lshaped.nscenarios),1.0,lshaped.ξ)
     # Solve projection problem
+    hastrait(lshaped,LinearizedQuadraticPenalty) && push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
     lshaped.projectionsolver(lshaped.mastervector)
+    hastrait(lshaped,LinearizedQuadraticPenalty) && pop!(lshaped.mastervector)
     if status(lshaped.projectionsolver) == :Infeasible
         error("Projection problem is infeasible, aborting procedure.")
     end
     # Update master solution
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.projectionsolver)
-    lshaped.mastervector[:] = x
+    lshaped.mastervector[:] = x[1:ncols+lshaped.nscenarios]
     lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.θs[:] = x[end-lshaped.nscenarios+1:end]
+    lshaped.θs[:] = x[ncols+1:ncols+lshaped.nscenarios]
     lshaped.solverdata.θ = calculate_estimate(lshaped)
     nothing
+end
+# ------------------------------------------------------------
+# LinearizedQuadraticPenalty
+# ------------------------------------------------------------
+@define_trait LinearizedQuadraticPenalty
+
+@define_traitfn LinearizedQuadraticPenalty add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector) = begin
+    function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector,!LinearizedQuadraticPenalty)
+        # Linear part
+        c[1:length(ξ)] -= α*ξ
+        setobj!(model,c)
+        # Quadratic part
+        qidx = collect(1:length(ξ)+lshaped.nscenarios)
+        qval = fill(α,length(lshaped.ξ))
+        append!(qval,zeros(lshaped.nscenarios))
+        if applicable(setquadobj!,model,qidx,qidx,qval)
+            setquadobj!(model,qidx,qidx,qval)
+        else
+            error("Setting a quadratic penalty requires a solver that handles quadratic objectives")
+        end
+    end
+
+    function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector,LinearizedQuadraticPenalty)
+        ncols = lshaped.structuredmodel.numCols
+        tidx = ncols+nscenarios(lshaped)+1
+        j = lshaped.solverdata.regularizerindex
+        if j == -1
+            for i in 1:ncols
+                addconstr!(model,[i,tidx],[-α,1],-α*ξ[i],Inf)
+                addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
+            end
+            lshaped.solverdata.regularizerindex = lshaped.solverdata.levelindex+1
+        else
+            for i in j:j+ncols
+                delconstrs!(lshaped.projectionsolver.lqmodel,i)
+            end
+            for i in 1:ncols
+                addconstr!(lshaped.projectionsolver.lqmodel,[i,tidx],[-α,1],-ξ[i],Inf)
+                addconstr!(lshaped.projectionsolver.lqmodel,[i,tidx],[-α,-1],-Inf,-ξ[i])
+            end
+            lshaped.solverdata.regularizerindex = lshaped.solverdata.levelindex+1
+        end
+    end
 end

@@ -29,6 +29,8 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
         return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dlv
         return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+    elseif solver.variant == :llv
+        return LinearLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end

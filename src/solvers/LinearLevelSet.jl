@@ -1,20 +1,21 @@
-@with_kw mutable struct LevelSetData{T <: Real}
+@with_kw mutable struct LinearLevelSetData{T <: Real}
     Q::T = 1e10
     Q̃::T = 1e10
     θ::T = -1e10
     iterations::Int = 0
     levelindex::Int = -1
+    regularizerindex::Int = -1
 end
 
-@with_kw mutable struct LevelSetParameters{T <: Real}
+@with_kw mutable struct LinearLevelSetParameters{T <: Real}
     τ::T = 1e-6
     λ::T = 0.5
     log::Bool = true
 end
 
-struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct LinearLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
-    solverdata::LevelSetData{T}
+    solverdata::LinearLevelSetData{T}
 
     # Master
     mastersolver::M
@@ -44,12 +45,13 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     θ_history::A
 
     # Params
-    parameters::LevelSetParameters{T}
+    parameters::LinearLevelSetParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait LevelSet HasLevels
+    @implement_trait LinearLevelSet HasLevels
+    @implement_trait LinearLevelSet LinearizedQuadraticPenalty
 
-    function (::Type{LevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{LinearLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
         if nworkers() > 1
             warn("There are worker processes, consider using distributed version of algorithm")
         end
@@ -71,7 +73,7 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
-                               LevelSetData{T}(),
+                               LinearLevelSetData{T}(),
                                msolver,
                                psolver,
                                mastervector,
@@ -90,16 +92,16 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                A(fill(-Inf,n)),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
-                               LevelSetParameters{T}(;kw...),
+                               LinearLevelSetParameters{T}(;kw...),
                                ProgressThresh(1.0, "Leveled L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-LevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LinearLevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LinearLevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
-function (lshaped::LevelSet)()
+function (lshaped::LinearLevelSet)()
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start procedure

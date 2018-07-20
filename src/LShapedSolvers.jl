@@ -41,6 +41,7 @@ include("solvers/TrustRegion.jl")
 include("solvers/DTrustRegion.jl")
 include("solvers/LevelSet.jl")
 include("solvers/DLevelSet.jl")
+include("solvers/LinearLevelSet.jl")
 include("crash.jl")
 include("spinterface.jl")
 

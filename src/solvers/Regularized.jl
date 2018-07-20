@@ -10,7 +10,6 @@ end
 
 @with_kw mutable struct RegularizedParameters{T <: Real}
     τ::T = 1e-6
-    γ::T = 0.9
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5

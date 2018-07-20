@@ -7,7 +7,7 @@ end
 
 @with_kw mutable struct DLShapedParameters{T <: Real}
     κ::T = 0.3
-    τ::T = 1e-5
+    τ::T = 1e-6
     log::Bool = true
 end
 
