@@ -21,10 +21,6 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
         return Regularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :drd
         return DRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
-    elseif solver.variant == :lrd
-        return LinearRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
-    elseif solver.variant == :dlrd
-        return DLinearRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :tr
         return TrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dtr
@@ -33,10 +29,6 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
         return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :dlv
         return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
-    elseif solver.variant == :llv
-        return LinearLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
-    elseif solver.variant == :dllv
-        return DLinearLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end

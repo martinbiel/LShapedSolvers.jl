@@ -4,12 +4,14 @@
     θ::T = -1e10
     iterations::Int = 0
     levelindex::Int = -1
+    regularizerindex::Int = -1
 end
 
 @with_kw mutable struct LevelSetParameters{T <: Real}
     τ::T = 1e-6
     λ::T = 0.5
     log::Bool = true
+    linearize::Bool = false
 end
 
 struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}

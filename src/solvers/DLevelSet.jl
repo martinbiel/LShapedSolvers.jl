@@ -5,13 +5,15 @@
     timestamp::Int = 1
     iterations::Int = 0
     levelindex::Int = -1
+    regularizerindex::Int = -1
 end
 
 @with_kw mutable struct DLevelSetParameters{T <: Real}
-    κ::T = 0.3
+    κ::T = 0.6
     τ::T = 1e-6
     λ::T = 0.5
     log::Bool = true
+    linearize::Bool = true
 end
 
 struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}

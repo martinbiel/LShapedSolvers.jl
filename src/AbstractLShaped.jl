@@ -129,6 +129,16 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
     end
     # Project (if applicable)
     project!(lshaped)
+    # Check optimality if level sets are used
+    if hastrait(lshaped,HasLevels)
+        lshaped.solverdata.θ = calculate_estimate(lshaped)
+        if check_optimality(lshaped)
+            # Optimal
+            lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
+            push!(lshaped.Q_history,lshaped.solverdata.Q)
+            return :Optimal
+        end
+    end
     # Just return a valid status for this iteration
     return :Valid
 end

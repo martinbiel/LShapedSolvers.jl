@@ -153,7 +153,7 @@ mutable struct DecisionChannel{A <: AbstractArray} <: AbstractChannel
 end
 
 function put!(channel::DecisionChannel, t, x)
-    channel.decisions[t] = x
+    channel.decisions[t] = copy(x)
     notify(channel.cond_take)
     return channel
 end
@@ -354,14 +354,16 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         lshaped.subobjectives[t][cut.id] = Q
         lshaped.finished[t] += 1
         if lshaped.finished[t] == lshaped.nscenarios
+            lshaped.x[:] = fetch(lshaped.decisions,t)
             lshaped.Q_history[t] = current_objective_value(lshaped,lshaped.subobjectives[t])
             lshaped.solverdata.Q = lshaped.Q_history[t]
-            lshaped.solverdata.θ = lshaped.θ_history[t]
-            lshaped.x[:] = fetch(lshaped.decisions,t)
+            lshaped.solverdata.θ = t > 1 ? lshaped.θ_history[t-1] : -Inf
             take_step!(lshaped)
+            lshaped.solverdata.θ = lshaped.θ_history[t]
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
+                lshaped.solverdata.timestamp = t
                 map(w->put!(w,t),lshaped.work)
                 map(w->put!(w,-1),lshaped.work)
                 # Final log
@@ -391,8 +393,21 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         update_solution!(lshaped)
         # Project (if applicable)
         lshaped.solverdata.θ = calculate_estimate(lshaped)
-        project!(lshaped)
         lshaped.θ_history[t] = lshaped.solverdata.θ
+        project!(lshaped)
+        # If all work is finished at this timestamp, check optimality
+        if lshaped.finished[t] == lshaped.nscenarios
+            # Check if optimal
+            if check_optimality(lshaped)
+                # Optimal, tell workers to stop
+                lshaped.solverdata.timestamp = t
+                map(w->put!(w,t),lshaped.work)
+                map(w->put!(w,-1),lshaped.work)
+                # Final log
+                log!(lshaped)
+                return :Optimal
+            end
+        end
         # Log progress at current timestamp
         log_regularization!(lshaped,t)
         # Send new decision vector to workers
@@ -406,6 +421,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         push!(lshaped.finished,0)
         # Log progress
         log!(lshaped)
+        lshaped.θ_history[t+1] = -Inf
     end
     # Just return a valid status for this iteration
     return :Valid

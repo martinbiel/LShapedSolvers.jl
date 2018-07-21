@@ -48,4 +48,4 @@ end
     @constraint(model, const_aux, w[:beets_quota] <= 6000)
 end
 
-push!(problems,(sp,"Farmer",false))
+push!(problems,(sp,"Farmer"))

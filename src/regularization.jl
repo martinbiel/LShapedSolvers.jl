@@ -31,6 +31,16 @@ end
     end
 end
 
+@define_traitfn UsesRegularization solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver) = begin
+    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,!UsesRegularization)
+        solver(lshaped.mastervector)
+    end
+
+    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,UsesRegularization)
+        solver(lshaped.mastervector)
+    end
+end
+
 @define_traitfn UsesRegularization gap(lshaped::AbstractLShapedSolver) = begin
     function gap(lshaped::AbstractLShapedSolver,!UsesRegularization)
         @unpack τ = lshaped.parameters
@@ -106,7 +116,7 @@ end
 # ------------------------------------------------------------
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
-        if hastrait(lshaped,LinearizedQuadraticPenalty)
+        if lshaped.parameters.linearize
             σ̅ = 0.01*norm(lshaped.x,Inf)
             σ̲ = 0.001*norm(lshaped.x,Inf)
             σ = 0.005*norm(lshaped.x,Inf)
@@ -121,7 +131,7 @@ end
     lshaped.solverdata.σ = lshaped.parameters.σ
     push!(lshaped.σ_history,lshaped.solverdata.σ)
     # Add ∞-norm auxilliary variable
-    if hastrait(lshaped,LinearizedQuadraticPenalty)
+    if lshaped.parameters.linearize
         # t
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
     end
@@ -172,6 +182,10 @@ end
         add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
     end
     nothing
+end
+
+@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,IsRegularized)
+    solve_linearized_problem!(lshaped,solver)
 end
 
 # HasTrustRegion
@@ -267,7 +281,7 @@ end
     for i = 1:lshaped.nscenarios
         addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,0.0)
     end
-    if hastrait(lshaped,LinearizedQuadraticPenalty)
+    if lshaped.parameters.linearize
         # t
         addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
     end
@@ -293,6 +307,10 @@ end
     nothing
 end
 
+@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,HasLevels)
+    solve_linearized_problem!(lshaped,solver)
+end
+
 @implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},HasLevels)
     addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
     # TODO: Rewrite with MathOptInterface
@@ -301,8 +319,6 @@ end
 @implement_traitfn function project!(lshaped::AbstractLShapedSolver,HasLevels)
     @unpack θ,Q̃ = lshaped.solverdata
     @unpack λ = lshaped.parameters
-    # Update reference
-    # lshaped.ξ[:] = lshaped.x[:]
     # Update level (TODO: Rewrite with MathOptInterface)
     c = sparse(getobj(lshaped.mastersolver.lqmodel))
     L = (1-λ)*θ + λ*Q̃
@@ -328,31 +344,11 @@ end
     lshaped.mastervector[:] = x[1:ncols+lshaped.nscenarios]
     lshaped.x[1:ncols] = x[1:ncols]
     lshaped.θs[:] = x[ncols+1:ncols+lshaped.nscenarios]
-    lshaped.solverdata.θ = calculate_estimate(lshaped)
     nothing
 end
-# ------------------------------------------------------------
-# LinearizedQuadraticPenalty
-# ------------------------------------------------------------
-@define_trait LinearizedQuadraticPenalty
 
-@define_traitfn LinearizedQuadraticPenalty add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector) = begin
-    function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector,!LinearizedQuadraticPenalty)
-        # Linear part
-        c[1:length(ξ)] -= α*ξ
-        setobj!(model,c)
-        # Quadratic part
-        qidx = collect(1:length(ξ)+lshaped.nscenarios)
-        qval = fill(α,length(lshaped.ξ))
-        append!(qval,zeros(lshaped.nscenarios))
-        if applicable(setquadobj!,model,qidx,qidx,qval)
-            setquadobj!(model,qidx,qidx,qval)
-        else
-            error("Setting a quadratic penalty requires a solver that handles quadratic objectives")
-        end
-    end
-
-    function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector,LinearizedQuadraticPenalty)
+function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector)
+    if lshaped.parameters.linearize
         ncols = lshaped.structuredmodel.numCols
         tidx = ncols+nscenarios(lshaped)+1
         j = lshaped.solverdata.regularizerindex
@@ -374,17 +370,24 @@ end
         if hastrait(lshaped,HasLevels)
             lshaped.solverdata.regularizerindex += 1
         end
+    else
+        # Linear part
+        c[1:length(ξ)] -= α*ξ
+        setobj!(model,c)
+        # Quadratic part
+        qidx = collect(1:length(ξ)+lshaped.nscenarios)
+        qval = fill(α,length(lshaped.ξ))
+        append!(qval,zeros(lshaped.nscenarios))
+        if applicable(setquadobj!,model,qidx,qidx,qval)
+            setquadobj!(model,qidx,qidx,qval)
+        else
+            error("Setting a quadratic penalty requires a solver that handles quadratic objectives")
+        end
     end
 end
 
-@define_traitfn LinearizedQuadraticPenalty solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver) = begin
-    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,!LinearizedQuadraticPenalty)
-        solver(lshaped.mastervector)
-    end
-
-    function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,LinearizedQuadraticPenalty)
-        push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
-        solver(lshaped.mastervector)
-        pop!(lshaped.mastervector)
-    end
+function solve_linearized_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver)
+    push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
+    solver(lshaped.mastervector)
+    pop!(lshaped.mastervector)
 end

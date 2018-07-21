@@ -34,4 +34,4 @@ end
     @constraint(model, 8*y₁ + 5*y₂ <= 80*x₂)
 end
 
-push!(problems,(sp,"Simple",false))
+push!(problems,(sp,"Simple"))

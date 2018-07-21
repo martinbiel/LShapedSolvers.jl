@@ -11,7 +11,7 @@
 end
 
 @with_kw mutable struct DTrustRegionParameters{T <: Real}
-    κ::T = 0.3
+    κ::T = 0.7
     τ::T = 1e-6
     γ::T = 1e-4
     Δ = 1.0

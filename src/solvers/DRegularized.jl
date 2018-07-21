@@ -7,16 +7,18 @@
     iterations::Int = 1
     major_iterations::Int = 0
     minor_iterations::Int = 0
+    regularizerindex::Int = -1
 end
 
 @with_kw mutable struct DRegularizedParameters{T <: Real}
-    κ::T = 0.3
+    κ::T = 0.7
     τ::T = 1e-6
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
     log::Bool = true
     autotune::Bool = false
+    linearize::Bool = false
 end
 
 struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
