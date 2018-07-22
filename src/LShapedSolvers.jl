@@ -23,7 +23,7 @@ export
     optimsolver,
     optimize_structured!,
     fill_solution!,
-    get_solution,
+    get_decision,
     get_objective_value
 
 # Include files

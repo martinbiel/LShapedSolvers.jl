@@ -53,7 +53,7 @@ function current_objective_value(lshaped::AbstractLShapedSolver,Qs::AbstractVect
 end
 current_objective_value(lshaped) = current_objective_value(lshaped,lshaped.subobjectives)
 
-function get_solution(lshaped::AbstractLShapedSolver)
+function get_decision(lshaped::AbstractLShapedSolver)
     return lshaped.x
 end
 
