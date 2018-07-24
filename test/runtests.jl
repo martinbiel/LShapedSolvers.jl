@@ -9,7 +9,7 @@ reference_solver = GurobiSolver(OutputFlag=0)
 lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),autotune=true,log=false),"TR L-Shaped"),
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
 

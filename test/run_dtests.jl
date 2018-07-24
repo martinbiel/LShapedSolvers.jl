@@ -12,11 +12,12 @@ using Gurobi
 reference_solver = GurobiSolver(OutputFlag=0)
 dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
              (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),autotune=true,log=false),"TR L-Shaped"),
              (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
+
 lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),autotune=true,log=false),"TR L-Shaped"),
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
@@ -45,7 +46,7 @@ end
     x̄ = copy(sp_nondist.colVal)
     Q̄ = copy(sp_nondist.objVal)
     solve(sp_nondist,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
+    @test abs(optimal_value(sp_nondist) - Q̄) <= τ*(1e-10+abs(Q̄))
 end
 
 @testset "$lsname Solver with Distributed Data: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems

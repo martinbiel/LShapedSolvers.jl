@@ -15,7 +15,7 @@ end
     τ::T = 1e-6
     γ::T = 1e-4
     Δ = 1.0
-    Δ̅::T = 1.0
+    Δ̅::T = 1000.0
     log::Bool = true
     autotune::Bool = false
 end

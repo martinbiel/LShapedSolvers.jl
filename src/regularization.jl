@@ -117,13 +117,13 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,IsRegularized)
     if lshaped.parameters.autotune
         if lshaped.parameters.linearize
-            σ̅ = 0.01*norm(lshaped.x,Inf)
-            σ̲ = 0.001*norm(lshaped.x,Inf)
-            σ = 0.005*norm(lshaped.x,Inf)
+            σ̅ = max(4.0,0.01*norm(lshaped.x,Inf))
+            σ̲ = min(2.0,0.001*norm(lshaped.x,Inf))
+            σ = min(3.0,0.005*norm(lshaped.x,Inf))
             @pack lshaped.parameters = σ,σ̅,σ̲
         else
-            σ̅ = norm(lshaped.x)
-            σ̲ = 0.005*norm(lshaped.x)
+            σ̅ = max(4.0,norm(lshaped.x))
+            σ̲ = min(2.0,0.005*norm(lshaped.x))
             σ = σ̲
             @pack lshaped.parameters = σ,σ̅,σ̲
         end
@@ -197,12 +197,10 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     if lshaped.parameters.autotune
         Δ = max(1.0,0.01*norm(lshaped.x,Inf))
-        Δ̅ = 0.05*norm(lshaped.x,Inf)
+        Δ̅ = max(1000.0,norm(lshaped.x,Inf))
         @pack lshaped.parameters = Δ,Δ̅
     end
     lshaped.solverdata.Δ = lshaped.parameters.Δ
-    push!(lshaped.Δ_history,lshaped.solverdata.Δ)
-
     set_trustregion!(lshaped)
 end
 
@@ -221,15 +219,20 @@ end
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack γ = lshaped.parameters
+    need_update = false
     if Q <= Q̃ - γ*abs(Q̃-θ)
+        need_update = true
+        enlarge_trustregion!(lshaped)
         lshaped.solverdata.cΔ = 0
         lshaped.ξ[:] = lshaped.x[:]
         lshaped.solverdata.Q̃ = Q
-        enlarge_trustregion!(lshaped)
         lshaped.solverdata.major_iterations += 1
     else
-        reduce_trustregion!(lshaped)
+        need_update = reduce_trustregion!(lshaped)
         lshaped.solverdata.minor_iterations += 1
+    end
+    if need_update
+        set_trustregion!(lshaped)
     end
     nothing
 end
@@ -246,10 +249,9 @@ end
 @implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
-    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
+    if Q̃ - Q >= 0.5*(Q̃-θ) && abs(norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ) <= τ
         # Enlarge the trust-region radius
         lshaped.solverdata.Δ = min(Δ̅,2*lshaped.solverdata.Δ)
-        set_trustregion!(lshaped)
         return true
     else
         return false
@@ -266,7 +268,6 @@ end
         # Reduce the trust-region radius
         lshaped.solverdata.cΔ = 0
         lshaped.solverdata.Δ = (1/min(ρ,4))*lshaped.solverdata.Δ
-        set_trustregion!(lshaped)
         return true
     else
         return false

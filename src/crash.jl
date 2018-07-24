@@ -44,7 +44,7 @@ struct Custom{T <: Real} <: CrashMethod
 end
 
 function (crash::Custom)(sp::JuMP.Model,solver::MathProgBase.AbstractMathProgSolver)
-    return x₀
+    return crash.x₀
 end
 
 end

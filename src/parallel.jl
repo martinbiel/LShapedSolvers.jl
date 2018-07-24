@@ -106,7 +106,15 @@ end
         for w = 1:length(lshaped.subworkers)
             n = remotecall_fetch((sw)->length(fetch(sw)),w+1,lshaped.subworkers[w])
             for i = 1:n
-                fill_submodel!(scenarioproblems.problems[i+j],remotecall_fetch((sw,i)->get_solution(fetch(sw)[i]),w+1,lshaped.subworkers[w],i)...)
+                fill_submodel!(scenarioproblems.problems[i+j],remotecall_fetch((sw,i,x)->begin
+                                                                               sp = fetch(sw)[i]
+                                                                               sp(x)
+                                                                               get_solution(sp)
+                                                                               end,
+                                                                               w+1,
+                                                                               lshaped.subworkers[w],
+                                                                               i,
+                                                                               lshaped.x)...)
             end
             j += n
         end
