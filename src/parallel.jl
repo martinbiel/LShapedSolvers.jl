@@ -41,9 +41,10 @@
         # Prepare memory
         push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
         push!(lshaped.finished,0)
-        push!(lshaped.Q_history,Inf)
-        push!(lshaped.θ_history,-Inf)
-        log_regularization!(lshaped)
+        log_val = lshaped.parameters.log
+        lshaped.parameters.log = false
+        log!(lshaped)
+        lshaped.parameters.log = log_val
         # Ensure initialization is finished
         map(wait,active_workers)
         return lshaped
@@ -355,6 +356,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         # Add new cuts from subworkers
         t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
         if !bounded(cut)
+            map(w->put!(w,-1),lshaped.work)
             warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
             return :Unbounded
         end
@@ -362,26 +364,26 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         lshaped.subobjectives[t][cut.id] = Q
         lshaped.finished[t] += 1
         if lshaped.finished[t] == lshaped.nscenarios
+            lshaped.solverdata.timestamp = t
             lshaped.x[:] = fetch(lshaped.decisions,t)
             lshaped.Q_history[t] = current_objective_value(lshaped,lshaped.subobjectives[t])
             lshaped.solverdata.Q = lshaped.Q_history[t]
-            lshaped.solverdata.θ = t > 1 ? lshaped.θ_history[t-1] : -Inf
+            lshaped.solverdata.θ = t > 1 ? lshaped.θ_history[t-1] : -1e10
             take_step!(lshaped)
             lshaped.solverdata.θ = lshaped.θ_history[t]
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
-                lshaped.solverdata.timestamp = t
                 map(w->put!(w,t),lshaped.work)
                 map(w->put!(w,-1),lshaped.work)
                 # Final log
-                log!(lshaped)
+                log!(lshaped,lshaped.solverdata.iterations)
                 return :Optimal
             end
         end
     end
     # Resolve master
-    t = lshaped.solverdata.timestamp
+    t = lshaped.solverdata.iterations
     if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
         try
             solve_problem!(lshaped,lshaped.mastersolver)
@@ -395,24 +397,29 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         end
         if status(lshaped.mastersolver) == :Infeasible
             warn("Master is infeasible. Aborting procedure.")
+            map(w->put!(w,-1),lshaped.work)
             return :Infeasible
         end
         # Update master solution
         update_solution!(lshaped)
-        # Project (if applicable)
-        lshaped.solverdata.θ = calculate_estimate(lshaped)
+        θ = calculate_estimate(lshaped)
+        if t > 1 && abs(θ-lshaped.θ_history[t-1]) <= 10*lshaped.parameters.τ*abs(1e-10+θ) && lshaped.finished[t] != lshaped.nscenarios
+            # Not enough new information in master. Repeat iterate
+            return :Valid
+        end
+        lshaped.solverdata.θ = θ
         lshaped.θ_history[t] = lshaped.solverdata.θ
+        # Project (if applicable)
         project!(lshaped)
         # If all work is finished at this timestamp, check optimality
         if lshaped.finished[t] == lshaped.nscenarios
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
-                lshaped.solverdata.timestamp = t
                 map(w->put!(w,t),lshaped.work)
                 map(w->put!(w,-1),lshaped.work)
                 # Final log
-                log!(lshaped)
+                log!(lshaped,t)
                 return :Optimal
             end
         end
@@ -423,8 +430,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         for w in lshaped.work
             put!(w,t+1)
         end
-        # Prepare memory for next timestamp
-        lshaped.solverdata.timestamp += 1
+        # Prepare memory for next iteration
         push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
         push!(lshaped.finished,0)
         # Log progress

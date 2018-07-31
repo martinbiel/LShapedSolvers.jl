@@ -4,14 +4,14 @@
     θ::T = -1e10
     σ::T = 1.0
     timestamp::Int = 1
-    iterations::Int = 1
+    iterations::Int = 0
     major_iterations::Int = 0
     minor_iterations::Int = 0
     regularizerindex::Int = -1
 end
 
 @with_kw mutable struct DRegularizedParameters{T <: Real}
-    κ::T = 0.7
+    κ::T = 0.6
     τ::T = 1e-6
     σ::T = 1.0
     σ̅::T = 4.0

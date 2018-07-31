@@ -5,13 +5,14 @@
     Δ::T = 1.0
     cΔ::Int = 0
     timestamp::Int = 1
+    incubent::Int = 1
     iterations::Int = 0
     major_iterations::Int = 0
     minor_iterations::Int = 0
 end
 
 @with_kw mutable struct DTrustRegionParameters{T <: Real}
-    κ::T = 0.7
+    κ::T = 0.6
     τ::T = 1e-6
     γ::T = 1e-4
     Δ = 1.0
@@ -44,6 +45,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
 
     # Trust region
     ξ::A
+    incubents::Vector{Int}
     Q̃_history::A
     Δ_history::A
 
@@ -95,6 +97,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
                                ξ₀_,
+                               Vector{Inf}(),
                                A(),
                                A(),
                                A(fill(-Inf,n)),
@@ -124,13 +127,31 @@ function (lshaped::DTrustRegion)()
     end
 end
 
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion,HasTrustRegion)
+    @unpack Q̃,Δ,incubent = lshaped.solverdata
+    push!(lshaped.Q̃_history,Q̃)
+    push!(lshaped.Δ_history,Δ)
+    push!(lshaped.incubents,incubent)
+end
+
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion,t::Integer,HasTrustRegion)
+    @unpack Q̃,Δ,incubent = lshaped.solverdata
+    lshaped.Q̃_history[t] = Q̃
+    lshaped.Δ_history[t] = Δ
+    lshaped.incubents[t] = incubent
+end
+
 @implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
-    @unpack Q,Q̃,θ = lshaped.solverdata
+    @unpack Q,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
-    if abs(Q - Q̃) <= 0.5*(Q̃-θ) && norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ <= τ
+    t = lshaped.solverdata.timestamp
+    lshaped.solverdata.incubent = t
+    Δ̃ = lshaped.Δ_history[t]
+    ξ = t > 1 ? fetch(lshaped.decisions,lshaped.incubents[t]) : lshaped.ξ
+    Q̃ = t > 1 ? lshaped.Q̃_history[lshaped.incubents[t]] : lshaped.solverdata.Q̃
+    if Q̃ - Q >= 0.5*(Q̃-θ) && abs(norm(ξ-lshaped.x,Inf) - Δ̃) <= τ
         # Enlarge the trust-region radius
-        lshaped.solverdata.Δ = max(lshaped.solverdata.Δ,min(Δ̅,2*lshaped.solverdata.Δ))
-        set_trustregion!(lshaped)
+        lshaped.solverdata.Δ = max(lshaped.solverdata.Δ,min(Δ̅,2*Δ̃))
         return true
     else
         return false
@@ -138,16 +159,18 @@ end
 end
 
 @implement_traitfn function reduce_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
-    @unpack Q,Q̃,θ = lshaped.solverdata
-    ρ = min(1,lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
+    @unpack Q,θ = lshaped.solverdata
+    t = lshaped.solverdata.timestamp
+    Δ̃ = lshaped.Δ_history[t]
+    Q̃ = t > 1 ? lshaped.Q̃_history[lshaped.incubents[t]] : lshaped.solverdata.Q̃
+    ρ = min(1,Δ̃)*(Q-Q̃)/(Q̃-θ)
     if ρ > 0
         lshaped.solverdata.cΔ += 1
     end
     if ρ > 3 || (lshaped.solverdata.cΔ >= 3 && 1 < ρ <= 3)
         # Reduce the trust-region radius
         lshaped.solverdata.cΔ = 0
-        lshaped.solverdata.Δ = min(lshaped.solverdata.Δ,(1/min(ρ,4))*lshaped.solverdata.Δ)
-        set_trustregion!(lshaped)
+        lshaped.solverdata.Δ = min(lshaped.solverdata.Δ,(1/min(ρ,4))*Δ̃)
         return true
     else
         return false
