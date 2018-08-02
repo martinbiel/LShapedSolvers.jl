@@ -19,7 +19,7 @@ end
 OptimalityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,OptimalityCut)
 FeasibilityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,FeasibilityCut)
 LinearConstraint(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,LinearConstraint)
-Unbounded(id::Int) = HyperPlane{[],Inf,id,Unbounded}
+Unbounded(id::Int) = HyperPlane(sparsevec(Float64[]),1e10,id,Unbounded)
 
 SparseHyperPlane{T <: Real} = HyperPlane{<:HyperPlaneType,T,SparseVector{T,Int64}}
 SparseOptimalityCut{T <: Real} = HyperPlane{OptimalityCut,T,SparseVector{T,Int64}}

@@ -40,12 +40,13 @@ function getobjval(solver::LQSolver)
     optimstatus = status(solver)
     if optimstatus == :Optimal
         return getobjval(solver.lqmodel)
-    elseif optimstatus ==:Infeasible
+    elseif optimstatus == :Infeasible
         return Inf
-    elseif status == :Unbounded
-        solver.obj = -Inf
+    elseif optimstatus == :Unbounded
+        return -Inf
     else
-        error("LP could not be solved, returned status: ", optimstatus)
+        warn("LP could not be solved, returned status: ", optimstatus)
+        return NaN
     end
 end
 
@@ -59,7 +60,8 @@ function getredcosts(solver::LQSolver)
             fill(NaN, cols)
         end
     else
-        error("LP was not solved to optimality. Return status: ", optimstatus)
+        warn("LP was not solved to optimality. Return status: ", optimstatus)
+        return fill(NaN, cols)
     end
 end
 
@@ -79,7 +81,8 @@ function getduals(solver::LQSolver)
             fill(NaN, rows)
         end
     else
-        error("LP was not solved to optimality, and the model was not infeasible. Returned status: ", optimstatus)
+        warn("LP was not solved to optimality, and the model was not infeasible. Return status: ", optimstatus)
+        return fill(NaN, rows)
     end
 end
 

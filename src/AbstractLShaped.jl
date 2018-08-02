@@ -76,18 +76,21 @@ end
 function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
-
+    any_unbounded = false
     # Solve sub problems
     for subproblem ∈ lshaped.subproblems
         cut::SparseHyperPlane{T} = subproblem()
         if !bounded(cut)
-            warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
-            return -Inf
+            any_unbounded = true
+            warn("Subproblem ",cut.id," is unbounded, procedure will abort.")
+        else
+            addcut!(lshaped,cut)
+            lshaped.subobjectives[cut.id] = cut(lshaped.x)
         end
-        addcut!(lshaped,cut)
-        lshaped.subobjectives[cut.id] = cut(lshaped.x)
     end
-
+    if any_unbounded
+        return -Inf
+    end
     # Return current objective value
     return current_objective_value(lshaped)
 end
