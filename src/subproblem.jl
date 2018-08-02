@@ -94,7 +94,7 @@ function (subproblem::SubProblem)()
         return OptimalityCut(subproblem)
     elseif solvestatus == :Infeasible
         return FeasibilityCut(subproblem)
-    elseif lshaped.status == :Unbounded
+    elseif solvestatus == :Unbounded
         return Unbounded(subproblem)
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
@@ -110,7 +110,7 @@ function (subproblem::SubProblem)(x::AbstractVector)
         return getobjval(subproblem.solver)
     elseif solvestatus == :Infeasible
         error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))
-    elseif lshaped.status == :Unbounded
+    elseif solvestatus == :Unbounded
         error(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subproblem.id))
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
