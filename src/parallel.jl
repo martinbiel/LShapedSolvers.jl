@@ -295,22 +295,25 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                               decisions::Decisions{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
     while true
+        wait(work)
         t::Int = take!(work)
         if t == -1
             # Worker finished
             return
         end
         x::A = fetch(decisions,t)
-        update_subproblems!(subproblems,x)
         for subproblem in subproblems
-            cut = subproblem()
-            Q::T = cut(x)
-            try
-                put!(cuts,(t,Q,cut))
-            catch err
-                if err isa InvalidStateException
-                    # Master closed the cut channel. Worker finished
-                    return
+            @schedule begin
+                update_subproblem!(subproblem,x)
+                cut = subproblem()
+                Q::T = cut(x)
+                try
+                    put!(cuts,(t,Q,cut))
+                catch err
+                    if err isa InvalidStateException
+                        # Master closed the cut channel. Worker finished
+                        return
+                    end
                 end
             end
         end
