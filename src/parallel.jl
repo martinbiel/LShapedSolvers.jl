@@ -8,13 +8,14 @@
         # Prepare the subproblems
         m = lshaped.structuredmodel
         load_subproblems!(lshaped,scenarioproblems(m),subsolver)
+        append!(lshaped.subobjectives,zeros(nbundles(lshaped)))
         return lshaped
     end
 
     function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
         # Partitioning
-        (jobsize,extra) = divrem(lshaped.nscenarios,nworkers())
+        (jobsize,extra) = divrem(nscenarios(lshaped),nworkers())
         # One extra to guarantee coverage
         if extra > 0
             jobsize += 1
@@ -27,8 +28,6 @@
         stop = jobsize
         active_workers = Vector{Future}(nworkers())
         for w in workers()
-            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
-            put!(lshaped.work[w-1],1)
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
             active_workers[w-1] = load_worker!(scenarioproblems(m),w,lshaped.subworkers[w-1],lshaped.x,start,stop,subsolver)
             if start > lshaped.nscenarios
@@ -38,8 +37,12 @@
             stop += jobsize
             stop = min(stop,lshaped.nscenarios)
         end
+        for w in workers()
+            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
+            put!(lshaped.work[w-1],1)
+        end
         # Prepare memory
-        push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
+        push!(lshaped.subobjectives,zeros(nbundles(lshaped)))
         push!(lshaped.finished,0)
         log_val = lshaped.parameters.log
         lshaped.parameters.log = false
@@ -61,16 +64,64 @@ end
     end
 end
 
+@define_traitfn IsParallel nbundles(lshaped::AbstractLShapedSolver) = begin
+    function nbundles(lshaped::AbstractLShapedSolver,!IsParallel)
+        (n,extra) = divrem(lshaped.nscenarios,lshaped.parameters.bundle)
+        if extra > 0
+            n += 1
+        end
+        return n
+    end
+
+    function nbundles(lshaped::AbstractLShapedSolver,IsParallel)
+        (jobsize,extra) = divrem(lshaped.nscenarios,nworkers())
+        if extra > 0
+            jobsize += 1
+        end
+        (n,extra) = divrem(jobsize,lshaped.parameters.bundle)
+        if extra > 0
+            n += 1
+        end
+        remainder = lshaped.nscenarios-(nworkers()-1)*jobsize
+        (bundlerem,extra) = divrem(remainder,lshaped.parameters.bundle)
+        if extra > 0
+            bundlerem += 1
+        end
+        return n*(nworkers()-1)+bundlerem
+    end
+end
+
 @define_traitfn IsParallel init_workers!(lshaped::AbstractLShapedSolver) = begin
     function init_workers!(lshaped::AbstractLShapedSolver,IsParallel)
+        bundleindex = 1
+        (jobsize,extra) = divrem(lshaped.nscenarios,nworkers())
+        if extra > 0
+            jobsize += 1
+        end
+        (n,extra) = divrem(jobsize,lshaped.parameters.bundle)
+        if extra > 0
+            n += 1
+        end
         active_workers = Vector{Future}(nworkers())
         for w in workers()
-            active_workers[w-1] = remotecall(work_on_subproblems!,
-                                             w,
-                                             lshaped.subworkers[w-1],
-                                             lshaped.work[w-1],
-                                             lshaped.cutqueue,
-                                             lshaped.decisions)
+            if lshaped.parameters.bundle == 1
+                active_workers[w-1] = remotecall(work_on_subproblems!,
+                                                 w,
+                                                 lshaped.subworkers[w-1],
+                                                 lshaped.work[w-1],
+                                                 lshaped.cutqueue,
+                                                 lshaped.decisions)
+            else
+                active_workers[w-1] = remotecall(work_on_subproblems!,
+                                                 w,
+                                                 lshaped.subworkers[w-1],
+                                                 lshaped.work[w-1],
+                                                 lshaped.cutqueue,
+                                                 lshaped.decisions,
+                                                 lshaped.parameters.bundle,
+                                                 bundleindex)
+                bundleindex += n
+            end
         end
         return active_workers
     end
@@ -79,7 +130,7 @@ end
 @define_traitfn IsParallel close_workers!(lshaped::AbstractLShapedSolver,workers::Vector{Future}) = begin
     function close_workers!(lshaped::AbstractLShapedSolver,workers::Vector{Future},IsParallel)
         @async begin
-            close(lshaped.cutqueue)
+            map((w)->close(w),lshaped.work)
             map(wait,workers)
         end
     end
@@ -294,9 +345,20 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                               cuts::CutQueue{T},
                               decisions::Decisions{A}) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    if isempty(subproblems)
+       # Workers has nothing do to, return.
+       return
+    end
     while true
-        wait(work)
-        t::Int = take!(work)
+        t::Int = try
+            wait(work)
+            take!(work)
+        catch err
+            if err isa InvalidStateException
+                # Master closed the work channel. Worker finished
+                return
+            end
+        end
         if t == -1
             # Worker finished
             return
@@ -307,14 +369,53 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                 update_subproblem!(subproblem,x)
                 cut = subproblem()
                 Q::T = cut(x)
-                try
-                    put!(cuts,(t,Q,cut))
-                catch err
-                    if err isa InvalidStateException
-                        # Master closed the cut channel. Worker finished
-                        return
-                    end
+                put!(cuts,(t,Q,cut))
+            end
+        end
+    end
+end
+
+function work_on_subproblems!(subworker::SubWorker{T,A,S},
+                              work::Work,
+                              cuts::CutQueue{T},
+                              decisions::Decisions{A},
+                              bundle::Int,
+                              bundleindex::Int) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    while true
+        t::Int = try
+            wait(work)
+            take!(work)
+        catch err
+            if err isa InvalidStateException
+                # Master closed the work channel. Worker finished
+                return
+            end
+        end
+        if t == -1
+            # Worker finished
+            return
+        end
+        if isempty(subproblems)
+            # Workers has nothing do to
+            continue
+        end
+        x::A = fetch(decisions,t)
+        (njobs,extra) = divrem(length(subproblems),bundle)
+        if extra > 0
+            njobs += 1
+        end
+        for i = 1:njobs
+            @schedule begin
+                bundled_cuts = Vector{SparseHyperPlane{T}}()
+                Qagg = zero(T)
+                for subproblem in subproblems[(i-1)*bundle+1:min(i*bundle,length(subproblems))]
+                    update_subproblem!(subproblem,x)
+                    cut = subproblem()
+                    Qagg += cut(x)
+                    push!(bundled_cuts,cut)
                 end
+                put!(cuts,(t,Qagg,aggregate!(bundled_cuts,bundleindex+i-1)))
             end
         end
     end
@@ -366,7 +467,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         addcut!(lshaped,cut,Q)
         lshaped.subobjectives[t][cut.id] = Q
         lshaped.finished[t] += 1
-        if lshaped.finished[t] == lshaped.nscenarios
+        if lshaped.finished[t] == nbundles(lshaped)
             lshaped.solverdata.timestamp = t
             lshaped.x[:] = fetch(lshaped.decisions,t)
             lshaped.Q_history[t] = current_objective_value(lshaped,lshaped.subobjectives[t])
@@ -387,7 +488,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
     end
     # Resolve master
     t = lshaped.solverdata.iterations
-    if lshaped.finished[t] >= lshaped.parameters.κ*lshaped.nscenarios && length(lshaped.cuts) >= lshaped.nscenarios
+    if lshaped.finished[t] >= lshaped.parameters.κ*nbundles(lshaped) && length(lshaped.cuts) >= nbundles(lshaped)
         try
             solve_problem!(lshaped,lshaped.mastersolver)
         catch
@@ -406,16 +507,16 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         # Update master solution
         update_solution!(lshaped)
         θ = calculate_estimate(lshaped)
-        if t > 1 && abs(θ-lshaped.θ_history[t-1]) <= 10*lshaped.parameters.τ*abs(1e-10+θ) && lshaped.finished[t] != lshaped.nscenarios
+        if t > 1 && abs(θ-lshaped.θ_history[t-1]) <= 10*lshaped.parameters.τ*abs(1e-10+θ) && lshaped.finished[t] != nbundles(lshaped)
             # Not enough new information in master. Repeat iterate
             return :Valid
         end
         lshaped.solverdata.θ = θ
-        lshaped.θ_history[t] = lshaped.solverdata.θ
+        lshaped.θ_history[t] = θ
         # Project (if applicable)
         project!(lshaped)
         # If all work is finished at this timestamp, check optimality
-        if lshaped.finished[t] == lshaped.nscenarios
+        if lshaped.finished[t] == nbundles(lshaped)
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
@@ -434,7 +535,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             put!(w,t+1)
         end
         # Prepare memory for next iteration
-        push!(lshaped.subobjectives,zeros(lshaped.nscenarios))
+        push!(lshaped.subobjectives,zeros(nbundles(lshaped)))
         push!(lshaped.finished,0)
         # Log progress
         log!(lshaped)

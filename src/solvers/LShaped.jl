@@ -6,6 +6,7 @@ end
 
 @with_kw mutable struct LShapedParameters{T <: Real}
     τ::T = 1e-6
+    bundle::Int = 1
     log::Bool = true
 end
 
@@ -62,8 +63,8 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
                                A(),
                                n,
                                Vector{SubProblem{T,A,S}}(),
-                               A(zeros(n)),
-                               A(fill(-1e10,n)),
+                               A(),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                LShapedParameters{T}(;kw...),

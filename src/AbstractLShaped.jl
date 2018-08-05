@@ -7,6 +7,8 @@ nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Initialize progress meter
     lshaped.progress.thresh = lshaped.parameters.τ
+    # Cap bundle size
+    lshaped.parameters.bundle = min(lshaped.parameters.bundle,lshaped.nscenarios)
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
@@ -25,22 +27,11 @@ end
 
 function update_solution!(lshaped::AbstractLShapedSolver)
     ncols = lshaped.structuredmodel.numCols
+    nb = nbundles(lshaped)
     x = getsolution(lshaped.mastersolver)
-    lshaped.mastervector[:] = x[1:ncols+lshaped.nscenarios]
+    lshaped.mastervector[:] = x[1:ncols+nb]
     lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.θs[:] = x[ncols+1:ncols+lshaped.nscenarios]
-    nothing
-end
-
-function update_structuredmodel!(lshaped::AbstractLShapedSolver)
-    lshaped.structuredmodel.colVal = copy(lshaped.x)
-    lshaped.structuredmodel.objVal = lshaped.c⋅lshaped.x + sum(lshaped.subobjectives)
-
-    for i in 1:lshaped.nscenarios
-        m = subproblem(lshaped.structuredmodel,i)
-        m.colVal = copy(getsolution(lshaped.subproblems[i].solver))
-        m.objVal = getobjval(lshaped.subproblems[i].solver)
-    end
+    lshaped.θs[:] = x[ncols+1:ncols+nb]
     nothing
 end
 
@@ -67,26 +58,46 @@ end
 
 function prepare_master!(lshaped::AbstractLShapedSolver)
     # θs
-    for i = 1:lshaped.nscenarios
+    for i = 1:nbundles(lshaped)
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
         push!(lshaped.mastervector,-1e10)
+        push!(lshaped.θs,-1e10)
     end
 end
 
 function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
-    any_unbounded = false
     # Solve sub problems
+    any_unbounded = false
+    bundleindex = 1
+    lshaped.subobjectives[bundleindex] = zero(T)
+    bundled_cuts = Vector{SparseHyperPlane{T}}()
     for subproblem ∈ lshaped.subproblems
         cut::SparseHyperPlane{T} = subproblem()
         if !bounded(cut)
             any_unbounded = true
             warn("Subproblem ",cut.id," is unbounded, procedure will abort.")
         else
-            addcut!(lshaped,cut)
-            lshaped.subobjectives[cut.id] = cut(lshaped.x)
+            if lshaped.parameters.bundle == 1
+                addcut!(lshaped,cut)
+                lshaped.subobjectives[cut.id] = cut(lshaped.x)
+            else
+                push!(bundled_cuts,cut)
+                lshaped.subobjectives[bundleindex] += cut(lshaped.x)
+                if length(bundled_cuts) == lshaped.parameters.bundle
+                    addcuts!(lshaped,bundled_cuts,bundleindex)
+                    bundleindex += 1
+                    if bundleindex <= length(lshaped.subobjectives)
+                        lshaped.subobjectives[bundleindex] = zero(T)
+                    end
+                end
+            end
         end
+    end
+    if lshaped.parameters.bundle > 1 && length(bundled_cuts) > 0
+        # Add final cut
+        addcuts!(lshaped,bundled_cuts,bundleindex)
     end
     if any_unbounded
         return -Inf
@@ -212,6 +223,10 @@ function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     push!(lshaped.cuts,cut)
     return true
+end
+
+function addcuts!(lshaped::AbstractLShapedSolver,cuts::Vector{<:HyperPlane},i::Integer)
+    addcut!(lshaped,aggregate!(cuts,i))
 end
 
 function show(io::IO, lshaped::AbstractLShapedSolver)

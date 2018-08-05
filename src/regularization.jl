@@ -73,7 +73,7 @@ end
 @define_traitfn UsesRegularization remove_inactive!(lshaped::AbstractLShapedSolver) = begin
     function remove_inactive!(lshaped::AbstractLShapedSolver,UsesRegularization)
         inactive = find(c->!active(lshaped,c),lshaped.committee)
-        diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - lshaped.nscenarios
+        diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - nbundles(lshaped)
         if isempty(inactive) || diff <= 0
             return false
         end
@@ -137,7 +137,7 @@ end
     end
     # Add quadratic penalty
     c = copy(lshaped.c)
-    append!(c,fill(1.0,lshaped.nscenarios))
+    append!(c,fill(1.0,nbundles(lshaped)))
     add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
 end
 
@@ -178,7 +178,7 @@ end
     lshaped.solverdata.σ = new_σ
     if need_update
         c = copy(lshaped.c)
-        append!(c,fill(1.0,lshaped.nscenarios))
+        append!(c,fill(1.0,nbundles(lshaped)))
         add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
     end
     nothing
@@ -238,10 +238,11 @@ end
 end
 
 @implement_traitfn function set_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
+    nb = nbundles(lshaped)
     l = max.(lshaped.structuredmodel.colLower, lshaped.ξ-lshaped.solverdata.Δ)
-    append!(l,fill(-Inf,lshaped.nscenarios))
+    append!(l,fill(-Inf,nb))
     u = min.(lshaped.structuredmodel.colUpper, lshaped.ξ+lshaped.solverdata.Δ)
-    append!(u,fill(Inf,lshaped.nscenarios))
+    append!(u,fill(Inf,nb))
     setvarLB!(lshaped.mastersolver.lqmodel,l)
     setvarUB!(lshaped.mastersolver.lqmodel,u)
 end
@@ -279,7 +280,7 @@ end
 
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasLevels)
     # θs
-    for i = 1:lshaped.nscenarios
+    for i = 1:nbundles(lshaped)
         addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,0.0)
     end
     if lshaped.parameters.linearize
@@ -321,6 +322,7 @@ end
     @unpack θ,Q̃ = lshaped.solverdata
     @unpack λ = lshaped.parameters
     # Update level (TODO: Rewrite with MathOptInterface)
+    nb = nbundles(lshaped)
     c = sparse(getobj(lshaped.mastersolver.lqmodel))
     L = (1-λ)*θ + λ*Q̃
     push!(lshaped.levels,L)
@@ -333,7 +335,7 @@ end
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
     end
     # Update regularizer
-    add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+lshaped.nscenarios),1.0,lshaped.ξ)
+    add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+nb),1.0,lshaped.ξ)
     # Solve projection problem
     solve_problem!(lshaped,lshaped.projectionsolver)
     if status(lshaped.projectionsolver) == :Infeasible
@@ -342,16 +344,17 @@ end
     # Update master solution
     ncols = lshaped.structuredmodel.numCols
     x = getsolution(lshaped.projectionsolver)
-    lshaped.mastervector[:] = x[1:ncols+lshaped.nscenarios]
+    lshaped.mastervector[:] = x[1:ncols+nb]
     lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.θs[:] = x[ncols+1:ncols+lshaped.nscenarios]
+    lshaped.θs[:] = x[ncols+1:ncols+nb]
     nothing
 end
 
 function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector)
+    nb = nbundles(lshaped)
     if lshaped.parameters.linearize
         ncols = lshaped.structuredmodel.numCols
-        tidx = ncols+nscenarios(lshaped)+1
+        tidx = ncols+nb+1
         j = lshaped.solverdata.regularizerindex
         if j == -1
             for i in 1:ncols
@@ -376,9 +379,9 @@ function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadra
         c[1:length(ξ)] -= α*ξ
         setobj!(model,c)
         # Quadratic part
-        qidx = collect(1:length(ξ)+lshaped.nscenarios)
+        qidx = collect(1:length(ξ)+nb)
         qval = fill(α,length(lshaped.ξ))
-        append!(qval,zeros(lshaped.nscenarios))
+        append!(qval,zeros(nb))
         if applicable(setquadobj!,model,qidx,qidx,qval)
             setquadobj!(model,qidx,qidx,qval)
         else
@@ -391,4 +394,5 @@ function solve_linearized_problem!(lshaped::AbstractLShapedSolver,solver::LQSolv
     push!(lshaped.mastervector,norm(lshaped.x-lshaped.ξ,Inf))
     solver(lshaped.mastervector)
     pop!(lshaped.mastervector)
+    return nothing
 end

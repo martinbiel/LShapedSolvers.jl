@@ -10,6 +10,7 @@ end
 @with_kw mutable struct LevelSetParameters{T <: Real}
     τ::T = 1e-6
     λ::T = 0.5
+    bundle::Int = 1
     log::Bool = true
     linearize::Bool = false
 end
@@ -84,12 +85,12 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{SubProblem{T,A,S}}(),
-                               A(zeros(n)),
+                               A(),
                                ξ₀_,
                                A(),
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                LevelSetParameters{T}(;kw...),

@@ -9,7 +9,7 @@ using MathProgBase
 using RecipesBase
 using ProgressMeter
 
-import Base: show, put!, wait, isready, take!, fetch
+import Base: show, put!, wait, isready, take!, fetch, zero, +
 import StochasticPrograms: StructuredModel, optimsolver, optimize_structured!, fill_solution!
 importall MathProgBase.SolverInterface
 

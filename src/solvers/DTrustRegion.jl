@@ -17,6 +17,7 @@ end
     γ::T = 1e-4
     Δ = 1.0
     Δ̅::T = 1000.0
+    bundle::Int = 1
     log::Bool = true
     autotune::Bool = false
 end
@@ -100,7 +101,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                Vector{Inf}(),
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DTrustRegionParameters{T}(;kw...),

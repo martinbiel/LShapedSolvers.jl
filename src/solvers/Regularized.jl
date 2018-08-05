@@ -14,6 +14,7 @@ end
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
+    bundle::Int = 1
     log::Bool = true
     autotune::Bool = false
     linearize::Bool = false
@@ -86,12 +87,12 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{SubProblem{T,A,S}}(),
-                               A(zeros(n)),
+                               A(),
                                ξ₀_,
                                A(),
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                RegularizedParameters{T}(;kw...),

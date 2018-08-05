@@ -12,6 +12,12 @@ lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped")
             (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
+lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false,bundle=2),"L-Shaped"),
+            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,bundle=2),"RD L-Shaped"),
+            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true,bundle=2),"Linearized RD L-Shaped"),
+            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,bundle=2),"TR L-Shaped"),
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,bundle=2),"Leveled L-Shaped"),
+            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true,bundle=2),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
 info("Loading test problems...")

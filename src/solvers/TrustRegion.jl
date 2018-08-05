@@ -14,6 +14,7 @@ end
     γ::T = 1e-4
     Δ = 1.0
     Δ̅::T = 1000.0
+    bundle::Int = 1
     log::Bool = true
     autotune::Bool = false
 end
@@ -85,12 +86,12 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
                                PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{SubProblem{T,A,S}}(),
-                               A(zeros(n)),
+                               A(),
                                ξ₀_,
                                A(),
                                A(),
                                A(),
-                               A(fill(-1e10,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                TrustRegionParameters{T}(;kw...),

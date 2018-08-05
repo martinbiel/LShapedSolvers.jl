@@ -16,6 +16,7 @@ end
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
+    bundle::Int = 1
     log::Bool = true
     autotune::Bool = false
     linearize::Bool = false
@@ -105,7 +106,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                ξ₀_,
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DRegularizedParameters{T}(;kw...),

@@ -8,6 +8,7 @@ end
 @with_kw mutable struct DLShapedParameters{T <: Real}
     κ::T = 0.6
     τ::T = 1e-6
+    bundle::Int = 1
     log::Bool = true
 end
 
@@ -78,7 +79,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                Vector{Work}(nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DLShapedParameters{T}(;kw...),

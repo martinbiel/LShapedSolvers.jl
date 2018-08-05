@@ -12,8 +12,9 @@ end
     κ::T = 0.6
     τ::T = 1e-6
     λ::T = 0.5
+    bundle::Int = 1
     log::Bool = true
-    linearize::Bool = true
+    linearize::Bool = false
 end
 
 struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
@@ -96,7 +97,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
                                ξ₀_,
                                A(),
                                A(),
-                               A(fill(-Inf,n)),
+                               A(),
                                Vector{SparseHyperPlane{T}}(),
                                A(),
                                DLevelSetParameters{T}(;kw...),

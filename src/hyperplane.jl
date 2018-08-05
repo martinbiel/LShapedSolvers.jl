@@ -26,6 +26,25 @@ SparseOptimalityCut{T <: Real} = HyperPlane{OptimalityCut,T,SparseVector{T,Int64
 SparseFeasibilityCut{T <: Real} = HyperPlane{FeasibilityCut,T,SparseVector{T,Int64}}
 SparseLinearConstraint{T <: Real} = HyperPlane{LinearConstraint,T,SparseVector{T,Int64}}
 
+function zero(h::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    return HyperPlane(zero(h.δQ),zero(T),h.id,H)
+end
+function zero(h::HyperPlane{H,T,A},id::Integer) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    return HyperPlane(zero(h.δQ),zero(T),id,H)
+end
+
+function +(h1::HyperPlane{H,T,A},h2::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    return HyperPlane(h1.δQ+h2.δQ,h1.q+h2.q,h1.id,H)
+end
+
+function aggregate!(cuts::Vector{<:HyperPlane},i::Integer)
+    aggregated_cut = zero(cuts[1],i)
+    for j = 1:length(cuts)
+        aggregated_cut += pop!(cuts)
+    end
+    return aggregated_cut
+end
+
 function (hyperplane::HyperPlane{H})(x::AbstractVector) where H <: HyperPlaneType
     if length(hyperplane.δQ) != length(x)
         throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(hyperplane.δQ),length(x))))
@@ -92,7 +111,7 @@ function OptimalityCut(subproblem::SubProblem)
         cols[s] = j
         vals[s] = -π*λ[i]*coeff
     end
-    δQ = sparsevec(cols,vals,length(subproblem.x))
+    δQ = sparsevec(cols,vals, length(subproblem.x))
     q = π*getobjval(subproblem.solver)+δQ⋅subproblem.x
 
     return OptimalityCut(δQ, q, subproblem.id)
