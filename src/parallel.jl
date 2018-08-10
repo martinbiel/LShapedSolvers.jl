@@ -102,37 +102,37 @@ end
         if extra > 0
             n += 1
         end
-        active_workers = Vector{Future}(nworkers())
         for w in workers()
             if lshaped.parameters.bundle == 1
-                active_workers[w-1] = remotecall(work_on_subproblems!,
-                                                 w,
-                                                 lshaped.subworkers[w-1],
-                                                 lshaped.work[w-1],
-                                                 lshaped.cutqueue,
-                                                 lshaped.decisions)
+                lshaped.active_workers[w-1] = remotecall(work_on_subproblems!,
+                                                         w,
+                                                         lshaped.subworkers[w-1],
+                                                         lshaped.work[w-1],
+                                                         lshaped.cutqueue,
+                                                         lshaped.decisions)
             else
-                active_workers[w-1] = remotecall(work_on_subproblems!,
-                                                 w,
-                                                 lshaped.subworkers[w-1],
-                                                 lshaped.work[w-1],
-                                                 lshaped.cutqueue,
-                                                 lshaped.decisions,
-                                                 lshaped.parameters.bundle,
-                                                 bundleindex)
+                lshaped.active_workers[w-1] = remotecall(work_on_subproblems!,
+                                                         w,
+                                                         lshaped.subworkers[w-1],
+                                                         lshaped.work[w-1],
+                                                         lshaped.cutqueue,
+                                                         lshaped.decisions,
+                                                         lshaped.parameters.bundle,
+                                                         bundleindex)
                 bundleindex += n
             end
         end
-        return active_workers
+        return nothing
     end
 end
 
-@define_traitfn IsParallel close_workers!(lshaped::AbstractLShapedSolver,workers::Vector{Future}) = begin
-    function close_workers!(lshaped::AbstractLShapedSolver,workers::Vector{Future},IsParallel)
+@define_traitfn IsParallel close_workers!(lshaped::AbstractLShapedSolver) = begin
+    function close_workers!(lshaped::AbstractLShapedSolver,IsParallel)
         @async begin
             map((w)->close(w),lshaped.work)
-            map(wait,workers)
+            map(wait,lshaped.active_workers)
         end
+        return nothing
     end
 end
 
@@ -382,6 +382,10 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
                               bundle::Int,
                               bundleindex::Int) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    if isempty(subproblems)
+       # Workers has nothing do to, return.
+       return
+    end
     while true
         t::Int = try
             wait(work)
@@ -395,10 +399,6 @@ function work_on_subproblems!(subworker::SubWorker{T,A,S},
         if t == -1
             # Worker finished
             return
-        end
-        if isempty(subproblems)
-            # Workers has nothing do to
-            continue
         end
         x::A = fetch(decisions,t)
         (njobs,extra) = divrem(length(subproblems),bundle)
@@ -460,7 +460,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         # Add new cuts from subworkers
         t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
         if !bounded(cut)
-            map(w->put!(w,-1),lshaped.work)
+            map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
             warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
             return :Unbounded
         end
@@ -478,8 +478,8 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
-                map(w->put!(w,t),lshaped.work)
-                map(w->put!(w,-1),lshaped.work)
+                map((w,aw)->!isready(aw) && put!(w,t),lshaped.work,lshaped.active_workers)
+                map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
                 # Final log
                 log!(lshaped,lshaped.solverdata.iterations)
                 return :Optimal
@@ -496,12 +496,12 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             @unpack Q,θ = lshaped.solverdata
             gap = abs(θ-Q)/(abs(Q)+1e-10)
             warn("Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure.")
-            map(w->put!(w,-1),lshaped.work)
+            map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
             return :StoppedPrematurely
         end
         if status(lshaped.mastersolver) == :Infeasible
             warn("Master is infeasible. Aborting procedure.")
-            map(w->put!(w,-1),lshaped.work)
+            map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
             return :Infeasible
         end
         # Update master solution
@@ -520,8 +520,8 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             # Check if optimal
             if check_optimality(lshaped)
                 # Optimal, tell workers to stop
-                map(w->put!(w,t),lshaped.work)
-                map(w->put!(w,-1),lshaped.work)
+                map((w,aw)->!isready(aw) && put!(w,t),lshaped.work,lshaped.active_workers)
+                map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
                 # Final log
                 log!(lshaped,t)
                 return :Optimal
@@ -531,9 +531,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         log_regularization!(lshaped,t)
         # Send new decision vector to workers
         put!(lshaped.decisions,t+1,lshaped.x)
-        for w in lshaped.work
-            put!(w,t+1)
-        end
+        map((w,aw)->!isready(aw) && put!(w,t+1),lshaped.work,lshaped.active_workers)
         # Prepare memory for next iteration
         push!(lshaped.subobjectives,zeros(nbundles(lshaped)))
         push!(lshaped.finished,0)

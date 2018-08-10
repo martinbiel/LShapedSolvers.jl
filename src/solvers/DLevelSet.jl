@@ -39,6 +39,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
     work::Vector{Work}
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
+    active_workers::Vector{Future}
 
     # Regularizer
     ξ::A
@@ -94,6 +95,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
                                Vector{Work}(nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                               Vector{Future}(nworkers()),
                                ξ₀_,
                                A(),
                                A(),
@@ -113,12 +115,12 @@ function (lshaped::DLevelSet)()
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start workers
-    active_workers = init_workers!(lshaped)
+    init_workers!(lshaped)
     # Start procedure
     while true
         status = iterate!(lshaped)
         if status != :Valid
-            close_workers!(lshaped,active_workers)
+            close_workers!(lshaped)
             return status
         end
     end

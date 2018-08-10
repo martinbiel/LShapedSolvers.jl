@@ -43,6 +43,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     work::Vector{Work}
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
+    active_workers::Vector{Future}
 
     # Trust region
     ξ::A
@@ -97,6 +98,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                Vector{Work}(nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                               Vector{Future}(nworkers()),
                                ξ₀_,
                                Vector{Inf}(),
                                A(),
@@ -117,12 +119,12 @@ function (lshaped::DTrustRegion)()
     # Reset timer
     lshaped.progress.tfirst = lshaped.progress.tlast = time()
     # Start workers
-    active_workers = init_workers!(lshaped)
+    init_workers!(lshaped)
     # Start procedure
     while true
         status = iterate!(lshaped)
         if status != :Valid
-            close_workers!(lshaped,active_workers)
+            close_workers!(lshaped)
             return status
         end
     end
