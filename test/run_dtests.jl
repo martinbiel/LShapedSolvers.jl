@@ -3,9 +3,9 @@ include("/usr/share/julia/test/testenv.jl")
 addprocs_with_testenv(3)
 @test nworkers() == 3
 
+@everywhere using StochasticPrograms
 using LShapedSolvers
 using JuMP
-using StochasticPrograms
 using Gurobi
 
 τ = 1e-5
