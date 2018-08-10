@@ -1,5 +1,5 @@
 using Base.Test
-include("/opt/julia-0.6/share/julia/test/testenv.jl")
+include("/usr/share/julia/test/testenv.jl")
 addprocs_with_testenv(3)
 @test nworkers() == 3
 
@@ -14,10 +14,6 @@ dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped
              (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
              (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
              (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
-dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false,bundle=2),"L-Shaped"),
-             (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true,bundle=2),"Linearized RD L-Shaped"),
-             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,bundle=2),"TR L-Shaped"),
-             (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false,linearize=true,bundle=2),"Linearized Leveled L-Shaped")]
 
 lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
