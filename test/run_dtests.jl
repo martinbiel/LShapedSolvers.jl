@@ -26,8 +26,6 @@ info("Loading simple...")
 include("simple.jl")
 info("Loading farmer...")
 include("farmer.jl")
-info("Loading day-ahead problems...")
-include("dayahead.jl")
 
 info("Test problems loaded. Starting test sequence.")
 @testset "Distributed $lsname Solver with Distributed Data: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems

@@ -19,8 +19,6 @@ info("Loading simple...")
 include("simple.jl")
 info("Loading farmer...")
 include("farmer.jl")
-info("Loading day-ahead problems...")
-include("dayahead.jl")
 
 info("Test problems loaded. Starting test sequence.")
 @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
