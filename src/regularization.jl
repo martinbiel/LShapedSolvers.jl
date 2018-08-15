@@ -330,7 +330,7 @@ end
         addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
     else
-        delconstrs!(lshaped.projectionsolver.lqmodel,lshaped.solverdata.levelindex)
+        delconstrs!(lshaped.projectionsolver.lqmodel,[lshaped.solverdata.levelindex])
         addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
     end
@@ -362,9 +362,7 @@ function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadra
                 addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
         else
-            for i in j:j+2*ncols-1
-                delconstrs!(model,i)
-            end
+            delconstrs!(model,collect(j:j+2*ncols-1))
             for i in 1:ncols
                 addconstr!(model,[i,tidx],[-α,1],-ξ[i],Inf)
                 addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
