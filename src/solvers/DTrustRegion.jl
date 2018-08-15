@@ -22,6 +22,23 @@ end
     autotune::Bool = false
 end
 
+"""
+    DTrustRegion
+
+Functor object for the distributed trust-region L-shaped algorithm. Create by supplying `:tr` to the `LShapedSolver` factory function and then pass to a `StochasticPrograms.jl` model, assuming there are available worker cores.
+
+...
+# Algorithm parameters
+- `κ::Real = 0.6`: Amount of cutting planes, relative to the total number of scenarios, required to generate a new iterate in master procedure.
+- `τ::Real = 1e-6`: Relative tolerance for convergence checks.
+- `γ::T` = 1e-4: Relative tolerance for deciding if a minor iterate should be accepted as a new major iterate.
+- `Δ::Real = 1.0`: Initial size of ∞-norm trust-region.
+- `Δ̅::Real = 1000.0`: Maximum size of ∞-norm trust-region.
+- `bundle::Int = 1`: Amount of cutting planes in bundle. A value of 1 corresponds to a multicut algorithm and a value of at least the number of scenarios yields the classical L-shaped algorithm.
+- `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
+- `autotune::Bool = false`: If `true`, heuristic methods are used to set `Δ̅` and `Δ̅` based on the initial decision.
+...
+"""
 struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::DTrustRegionData{T}

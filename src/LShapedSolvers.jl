@@ -24,7 +24,15 @@ export
     optimize_structured!,
     fill_solution!,
     get_decision,
-    get_objective_value
+    get_objective_value,
+    LShaped,
+    DLShaped,
+    Regularized,
+    DRegularized,
+    TrustRegion,
+    DTrustRegion,
+    LevelSet,
+    DLevelSet
 
 # Include files
 include("LQSolver.jl")

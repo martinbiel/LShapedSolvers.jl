@@ -27,7 +27,7 @@ Note, that an LP capable `AbstractMathProgSolver` is required to solve emerging 
 3. L-shaped with trust region: `LShapedSolver(:tr)`
 4. L-shaped with level sets: `LShapedSolver(:lv)`
 
-Note, that `LShapedSolver(:rd)` and `LShapedSolver(:lv)` both require a QP capable `AbstractMathProgSolver` for the master problems.
+Note, that `LShapedSolver(:rd)` and `LShapedSolver(:lv)` both require a QP capable `AbstractMathProgSolver` for the master problems. If not available, setting the `linearize` keyword to `true` is an alternative.
 
 In addition, there is a distributed variant of each algorithm:
 
@@ -37,6 +37,10 @@ In addition, there is a distributed variant of each algorithm:
 4. Distributed L-shaped with level sets: `LShapedSolver(:dlv)`
 
 which requires adding processes with `addprocs` prior to execution.
+
+Each algorithm has a set of parameters that can be tuned prior to execution. For a list of these parameters and their default values, use `?` in combination with the solver object. For example, `?LShaped` gives the parameter list of the default L-shaped algorithm. For a list of all solvers and their handle names, use `?LShapedSolver`.
+
+`LShapedSolvers.jl` includes a set of crash methods that can be used to generate the initial decision by supplying functor objects to `LShapedSolver`. Use `?Crash` for a list of available crashes and their usage.
 
 [StochProg]: https://github.com/martinbiel/StochasticPrograms.jl
 

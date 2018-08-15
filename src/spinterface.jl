@@ -1,3 +1,40 @@
+"""
+    LShapedSolver(variant::Symbol = :ls, lpsolver::AbstractMathProgSolver; <keyword arguments>)
+
+Return the L-shaped algorithm object specified by the `variant` symbol. Supply `lpsolver`, a MathProgBase solver capable of solving linear quadratic problems.
+
+The available algorithm variants are as follows
+- `:ls`:  L-shaped algorithm (default) ?LShaped for parameter descriptions.
+- `:dls`: Distributed L-shaped (requires worker cores) ?DLShaped for parameter descriptions.
+- `:rd`:  Regularized decomposition ?Regularized for parameter descriptions.
+- `:drd`: Distributed regularized (requires worker cores) ?DRegularized for parameter descriptions.
+- `:tr`:  Trust-region ?TrustRegion for parameter descriptions.
+- `:dtr`: Distributed trust-region (requires worker cores) ?DTrustRegion for parameter descriptions.
+- `:lv`:  Level-set ?LevelSet for parameter descriptions.
+- `:dlv`: Distributed level-set (requires worker cores) ?DLevelSet for parameter descriptions.
+
+...
+# Arguments
+- `variant::Symbol = :ls`: L-shaped algorithm variant.
+- `lpsolver::AbstractMathProgSolver`: MathProgBase solver capable of solving linear (and possibly quadratic) programs.
+- `crash::Crash.CrashMethod = Crash.None`: Crash method used to generate an initial decision. See ?Crash for alternatives.
+- `subsolver::AbstractMathProgSolver = lpsolver`: Optionally specify a different solver for the subproblems.
+- <keyword arguments>: Algorithm specific parameters, consult individual docstrings (see above list) for list of possible arguments and default values.
+...
+
+## Examples
+
+The following solves a stochastic program `sp` created in `StochasticPrograms.jl` using the L-shaped algorithm with Clp as an `lpsolver`.
+
+```jldoctest
+julia> solve(sp,solver=LShapedSolver(:ls,ClpSolver()))
+L-Shaped Gap  Time: 0:00:01 (6 iterations)
+  Objective:       -855.8333333333358
+  Gap:             4.250802890466926e-15
+  Number of cuts:  8
+:Optimal
+```
+"""
 struct LShapedSolver <: AbstractStructuredSolver
     variant::Symbol
     lpsolver::AbstractMathProgSolver

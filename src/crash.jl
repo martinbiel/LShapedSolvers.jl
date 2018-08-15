@@ -1,3 +1,29 @@
+"""
+    Crash
+
+Collection of crash methods used to generate initial decisions in L-shaped algorithms. Supply as functor object to the `crash` keyword in calls to `LShapedSolver`
+
+...
+# Crash methods
+- `Crash.None()`: Randomize the initial decision (default).
+- `Crash.EVP()`: Solve the expected value problem corresponding to the stochastic program and use the expected value solution as initial decision.
+- `Crash.Scenario(scenario::AbstractScenario)`: Solve the wait-and-see problem corresponding a supplied scenario and use the optimal solution as initial decision.
+- `Crash.Custom(x₀)`: Use the user-supplied `x₀` as initial decision.
+...
+
+## Examples
+
+The following solves a stochastic program `sp` created in `StochasticPrograms.jl` using the trust-region L-shaped algorithm with Clp as an `lpsolver` and by generating an initial decision with the `EVP` crash.
+
+```jldoctest
+julia> solve(sp,solver=LShapedSolver(:tr,ClpSolver(),crash=Crash.EVP()))
+TR L-Shaped Gap  Time: 0:00:00 (8 iterations)
+  Objective:       -855.8333333333321
+  Gap:             0.0
+  Number of cuts:  4
+:Optimal
+```
+"""
 module Crash
 
 using StochasticPrograms

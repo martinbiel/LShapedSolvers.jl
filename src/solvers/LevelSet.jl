@@ -15,6 +15,20 @@ end
     linearize::Bool = false
 end
 
+"""
+    LevelSet
+
+Functor object for the level-set L-shaped algorithm. Create by supplying `:tr` to the `LShapedSolver` factory function and then pass to a `StochasticPrograms.jl` model.
+
+...
+# Algorithm parameters
+- `τ::Real = 1e-6`: Relative tolerance for convergence checks.
+- `λ::Real = 0.5`: Controls the level position L = (1-λ)*θ + λ*Q̃, a convex combination of the current lower and upper bound.
+- `bundle::Int = 1`: Amount of cutting planes in bundle. A value of 1 corresponds to a multicut algorithm and a value of at least the number of scenarios yields the classical L-shaped algorithm.
+- `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
+- `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
+...
+"""
 struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::LevelSetData{T}

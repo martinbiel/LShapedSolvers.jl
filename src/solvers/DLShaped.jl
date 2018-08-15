@@ -12,6 +12,19 @@ end
     log::Bool = true
 end
 
+"""
+    DLShaped
+
+Functor object for the distributed L-shaped algorithm. Create by supplying `:dls` to the `LShapedSolver` factory function and then pass to a `StochasticPrograms.jl` model, assuming there are available worker cores.
+
+...
+# Algorithm parameters
+- `κ::Real = 0.6`: Amount of cutting planes, relative to the total number of scenarios, required to generate a new iterate in master procedure.
+- `τ::Real = 1e-6`: Relative tolerance for convergence checks.
+- `bundle::Int = 1`: Amount of cutting planes in bundle. A value of 1 corresponds to a multicut algorithm and a value of at least the number of scenarios yields the classical L-shaped algorithm.
+- `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
+...
+"""
 struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::DLShapedData{T}
