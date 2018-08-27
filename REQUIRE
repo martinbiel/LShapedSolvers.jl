@@ -1,1 +1,8 @@
 julia 0.6
+TraitDispatch 0.0.1
+StochasticPrograms 0.0.1
+Parameters 0.9.2
+JuMP 0.18.2
+MathProgBase 0.7.2
+RecipesBase 0.3.1
+ProgressMeter 0.5.6
