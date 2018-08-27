@@ -175,7 +175,7 @@ end
 
 @define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,!IsParallel)
-        active_workers = Vector{Future}(nworkers())
+        active_workers = Vector{Future}(length(scenarioproblems))
         j = 1
         for w in workers()
             n = remotecall_fetch((sp)->length(fetch(sp).problems),w,scenarioproblems[w-1])

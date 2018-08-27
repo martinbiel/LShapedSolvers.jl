@@ -48,13 +48,13 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
                                              y₀_,
                                              Vector{Tuple{Int,Int,T}}()
                                              )
-        parseSubProblem!(subproblem,model,parent)
+        parse_subproblem!(subproblem,model,parent)
 
         return subproblem
     end
 end
 
-function parseSubProblem!(subproblem::SubProblem,model::JuMP.Model,parent::JuMP.Model)
+function parse_subproblem!(subproblem::SubProblem,model::JuMP.Model,parent::JuMP.Model)
     for (i,constr) in enumerate(model.linconstr)
         for (j,var) in enumerate(constr.terms.vars)
             if var.m == parent
