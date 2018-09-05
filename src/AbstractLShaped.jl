@@ -182,6 +182,16 @@ function log!(lshaped::AbstractLShapedSolver,t::Integer)
     lshaped.θ_history[t] = θ
 
     log_regularization!(lshaped,t)
+
+    if lshaped.parameters.log
+        current_gap = gap(lshaped)
+        ProgressMeter.update!(lshaped.progress,current_gap,
+                              showvalues = [
+                                  ("Objective",Q),
+                                  ("Gap",current_gap),
+                                  ("Number of cuts",length(lshaped.cuts))
+                              ])
+    end
 end
 
 function check_optimality(lshaped::AbstractLShapedSolver)

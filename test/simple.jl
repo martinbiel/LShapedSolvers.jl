@@ -1,5 +1,5 @@
 @everywhere begin
-    struct SimpleScenario <: StochasticPrograms.AbstractScenarioData
+    struct SimpleScenario <: AbstractScenarioData
         π::Float64
         d::Vector{Float64}
         q::Vector{Float64}
