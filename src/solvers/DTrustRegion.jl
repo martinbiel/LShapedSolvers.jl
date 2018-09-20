@@ -19,6 +19,7 @@ end
     Δ̅::T = 1000.0
     bundle::Int = 1
     log::Bool = true
+    checkfeas::Bool = false
     autotune::Bool = false
 end
 

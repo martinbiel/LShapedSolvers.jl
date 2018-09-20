@@ -8,6 +8,8 @@ using LShapedSolvers
 using JuMP
 using Gurobi
 
+@everywhere logging(DevNull, kind=:warn)
+
 τ = 1e-5
 reference_solver = GurobiSolver(OutputFlag=0)
 dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
@@ -33,7 +35,16 @@ info("Test problems loaded. Starting test sequence.")
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+
+@testset "Distributed Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    add_params!(lsolver,bundle=2)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
 @testset "Distributed $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
@@ -44,7 +55,7 @@ end
     x̄ = copy(sp_nondist.colVal)
     Q̄ = copy(sp_nondist.objVal)
     solve(sp_nondist,solver=lsolver)
-    @test abs(optimal_value(sp_nondist) - Q̄) <= τ*(1e-10+abs(Q̄))
+    @test abs(optimal_value(sp_nondist) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
 @testset "$lsname Solver with Distributed Data: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
@@ -52,5 +63,29 @@ end
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
     solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+
+info("Loading infeasible...")
+include("infeasible.jl")
+lsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
+            (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped")]
+@testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    @test solve(sp,solver=lsolver) == :Infeasible
+    add_params!(lsolver,checkfeas=true)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+@testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    add_params!(lsolver,checkfeas=false,bundle=2)
+    @test solve(sp,solver=lsolver) == :Infeasible
+    add_params!(lsolver,checkfeas=true,bundle=2)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end

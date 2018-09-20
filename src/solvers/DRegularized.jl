@@ -18,6 +18,7 @@ end
     σ̲::T = 0.5
     bundle::Int = 1
     log::Bool = true
+    checkfeas::Bool = false
     autotune::Bool = false
     linearize::Bool = false
 end

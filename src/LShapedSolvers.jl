@@ -8,8 +8,10 @@ using StochasticPrograms
 using MathProgBase
 using RecipesBase
 using ProgressMeter
+using Gurobi
+using Gurobi.updatemodel!
 
-import Base: show, put!, wait, isready, take!, fetch, zero, +
+import Base: show, put!, wait, isready, take!, fetch, zero, +, length
 import StochasticPrograms: StructuredModel, optimsolver, optimize_structured!, fill_solution!
 importall MathProgBase.SolverInterface
 
@@ -20,6 +22,7 @@ export
     LShapedSolver,
     Crash,
     StructuredModel,
+    add_params!,
     optimsolver,
     optimize_structured!,
     fill_solution!,

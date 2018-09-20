@@ -3,13 +3,15 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
     π::T
 
     solver::S
+    feasibility_solver::S
+    check_feasibility::Bool
 
     h::Tuple{A,A}
     x::A
     y::A
     masterterms::Vector{Tuple{Int,Int,T}}
 
-    function (::Type{SubProblem})(model::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,masterterms::Vector{Tuple{Int,Int,R}},optimsolver::AbstractMathProgSolver) where R <: Real
+    function (::Type{SubProblem})(model::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,masterterms::Vector{Tuple{Int,Int,R}},optimsolver::AbstractMathProgSolver,check_feasibility::Bool) where R <: Real
         T = promote_type(eltype(x),eltype(y₀),R,Float32)
         x_ = convert(AbstractVector{T},x)
         y₀_ = convert(AbstractVector{T},y₀)
@@ -17,31 +19,39 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
         A = typeof(x_)
 
         solver = LQSolver(model,optimsolver)
+        feasibility_solver = LQSolver(model,optimsolver)
 
         subproblem = new{T,A,typeof(solver)}(id,
                                              π,
                                              solver,
+                                             feasibility_solver,
+                                             check_feasibility,
                                              (convert(A,getconstrLB(solver.lqmodel)),
                                               convert(A,getconstrUB(solver.lqmodel))),
                                              x_,
                                              y₀_,
                                              masterterms_
                                              )
-
+        if check_feasibility
+            feasibility_problem!(feasibility_solver)
+        end
         return subproblem
     end
 
-    function (::Type{SubProblem})(model::JuMP.Model,parent::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver)
+    function (::Type{SubProblem})(model::JuMP.Model,parent::JuMP.Model,id::Integer,π::Real,x::AbstractVector,y₀::AbstractVector,optimsolver::AbstractMathProgSolver,check_feasibility::Bool)
         T = promote_type(eltype(x),eltype(y₀),Float32)
         x_ = convert(AbstractVector{T},x)
         y₀_ = convert(AbstractVector{T},y₀)
         A = typeof(x_)
 
         solver = LQSolver(model,optimsolver)
+        feasibility_solver = LQSolver(model,optimsolver)
 
         subproblem = new{T,A,typeof(solver)}(id,
                                              π,
                                              solver,
+                                             feasibility_solver,
+                                             check_feasibility,
                                              (convert(A,getconstrLB(solver.lqmodel)),
                                               convert(A,getconstrUB(solver.lqmodel))),
                                              x_,
@@ -49,6 +59,9 @@ struct SubProblem{T <: Real, A <: AbstractVector, S <: LQSolver}
                                              Vector{Tuple{Int,Int,T}}()
                                              )
         parse_subproblem!(subproblem,model,parent)
+        if check_feasibility
+            feasibility_problem!(feasibility_solver)
+        end
 
         return subproblem
     end
@@ -78,7 +91,12 @@ function update_subproblem!(subproblem::SubProblem,x::AbstractVector)
     end
     setconstrLB!(subproblem.solver.lqmodel, lb)
     setconstrUB!(subproblem.solver.lqmodel, ub)
+    if subproblem.check_feasibility
+        setconstrLB!(subproblem.feasibility_solver.lqmodel, lb)
+        setconstrUB!(subproblem.feasibility_solver.lqmodel, ub)
+    end
     subproblem.x[:] = x
+    return nothing
 end
 update_subproblems!(subproblems::Vector{<:SubProblem},x::AbstractVector) = map(prob -> update_subproblem!(prob,x),subproblems)
 
@@ -87,14 +105,23 @@ function get_solution(subproblem::SubProblem)
 end
 
 function (subproblem::SubProblem)()
+    if subproblem.check_feasibility
+        subproblem.feasibility_solver(subproblem.y)
+        w = getobjval(subproblem.feasibility_solver)
+        if w > 0
+            return FeasibilityCut(subproblem)
+        end
+    end
     subproblem.solver(subproblem.y)
     solvestatus = status(subproblem.solver)
     if solvestatus == :Optimal
         subproblem.y[:] = getsolution(subproblem.solver)
         return OptimalityCut(subproblem)
     elseif solvestatus == :Infeasible
-        return FeasibilityCut(subproblem)
+        warn(@sprintf("Subproblem %d is infeasible at the given first-stage variable. Rerun procedure with checkfeas=true to use feasibility cuts.",subproblem.id))
+        return Infeasible(subproblem)
     elseif solvestatus == :Unbounded
+        warn(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subproblem.id))
         return Unbounded(subproblem)
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
@@ -109,9 +136,11 @@ function (subproblem::SubProblem)(x::AbstractVector)
         subproblem.y[:] = getsolution(subproblem.solver)
         return getobjval(subproblem.solver)
     elseif solvestatus == :Infeasible
-        error(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))
+        warn(@sprintf("Subproblem %d is infeasible at the given first-stage variable",subproblem.id))
+        return Inf
     elseif solvestatus == :Unbounded
-        error(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subproblem.id))
+        warn(@sprintf("Subproblem %d is unbounded at the given first-stage variable",subproblem.id))
+        return -Inf
     else
         error(@sprintf("Subproblem %d was not solved properly, returned status code: %s",subproblem.id,string(solvestatus)))
     end

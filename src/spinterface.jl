@@ -71,6 +71,10 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
     end
 end
 
+function add_params!(solver::LShapedSolver; kwargs...)
+    append!(solver.parameters,kwargs)
+end
+
 function optimsolver(solver::LShapedSolver)
     return solver.lpsolver
 end

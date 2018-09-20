@@ -10,6 +10,7 @@ end
     τ::T = 1e-6
     bundle::Int = 1
     log::Bool = true
+    checkfeas::Bool = false
 end
 
 """

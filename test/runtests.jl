@@ -3,15 +3,18 @@ using Base.Test
 using JuMP
 using StochasticPrograms
 using Gurobi
+using GLPKMathProgInterface
+
+logging(DevNull, kind=:warn)
 
 τ = 1e-5
 reference_solver = GurobiSolver(OutputFlag=0)
-lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
-            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false),"Leveled L-Shaped"),
-            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
+lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
+            (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
+            (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,reference_solver,log=false),"Leveled L-Shaped"),
+            (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
 info("Loading test problems...")
@@ -26,7 +29,40 @@ info("Test problems loaded. Starting test sequence.")
     x̄ = optimal_decision(sp)
     Q̄ = optimal_value(sp)
     solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄) <= τ*(1e-10+abs(Q̄))
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+
+@testset "Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    add_params!(lsolver,bundle=2)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+
+info("Loading infeasible...")
+include("infeasible.jl")
+lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped")]
+@testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    @test solve(sp,solver=lsolver) == :Infeasible
+    add_params!(lsolver,checkfeas=true)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+end
+@testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+    solve(sp,solver=reference_solver)
+    x̄ = optimal_decision(sp)
+    Q̄ = optimal_value(sp)
+    add_params!(lsolver,checkfeas=false,bundle=2)
+    @test solve(sp,solver=lsolver) == :Infeasible
+    add_params!(lsolver,checkfeas=true,bundle=2)
+    solve(sp,solver=lsolver)
+    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
 info("Starting distributed tests...")

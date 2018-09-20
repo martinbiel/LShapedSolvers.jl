@@ -3,6 +3,7 @@ abstract type HyperPlaneType end
 abstract type OptimalityCut <: HyperPlaneType end
 abstract type FeasibilityCut <: HyperPlaneType end
 abstract type LinearConstraint <: HyperPlaneType end
+abstract type Infeasible <: HyperPlaneType end
 abstract type Unbounded <: HyperPlaneType end
 
 struct HyperPlane{H <: HyperPlaneType, T <: Real, A <: AbstractVector}
@@ -19,6 +20,7 @@ end
 OptimalityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,OptimalityCut)
 FeasibilityCut(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,FeasibilityCut)
 LinearConstraint(δQ::AbstractVector,q::Real,id::Int) = HyperPlane(δQ,q,id,LinearConstraint)
+Infeasible(id::Int) = HyperPlane(sparsevec(Float64[]),1e10,id,Infeasible)
 Unbounded(id::Int) = HyperPlane(sparsevec(Float64[]),1e10,id,Unbounded)
 
 SparseHyperPlane{T <: Real} = HyperPlane{<:HyperPlaneType,T,SparseVector{T,Int64}}
@@ -26,39 +28,24 @@ SparseOptimalityCut{T <: Real} = HyperPlane{OptimalityCut,T,SparseVector{T,Int64
 SparseFeasibilityCut{T <: Real} = HyperPlane{FeasibilityCut,T,SparseVector{T,Int64}}
 SparseLinearConstraint{T <: Real} = HyperPlane{LinearConstraint,T,SparseVector{T,Int64}}
 
-function zero(h::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
-    return HyperPlane(zero(h.δQ),zero(T),h.id,H)
+function (hyperplane::HyperPlane{FeasibilityCut})(x::AbstractVector)
+    return Inf
 end
-function zero(h::HyperPlane{H,T,A},id::Integer) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
-    return HyperPlane(zero(h.δQ),zero(T),id,H)
-end
-
-function +(h1::HyperPlane{H,T,A},h2::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
-    return HyperPlane(h1.δQ+h2.δQ,h1.q+h2.q,h1.id,H)
-end
-
-function aggregate!(cuts::Vector{<:HyperPlane},i::Integer)
-    aggregated_cut = zero(cuts[1],i)
-    for j = 1:length(cuts)
-        aggregated_cut += pop!(cuts)
-    end
-    return aggregated_cut
-end
-
-function (hyperplane::HyperPlane{H})(x::AbstractVector) where H <: HyperPlaneType
-    if length(hyperplane.δQ) != length(x)
-        throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(hyperplane.δQ),length(x))))
-    end
-    return hyperplane.δQ⋅x,hyperplane.q
-end
-
 function (cut::HyperPlane{OptimalityCut})(x::AbstractVector)
     if length(cut.δQ) != length(x)
         throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(cut.δQ),length(x))))
     end
     return cut.q-cut.δQ⋅x
 end
+function (hyperplane::HyperPlane{Infeasible})(x::AbstractVector)
+    return Inf
+end
+function (hyperplane::HyperPlane{Unbounded})(x::AbstractVector)
+    return -Inf
+end
 
+infeasible(hyperplane::HyperPlane) = true
+infeasible(hyperplane::HyperPlane{Infeasible}) = true
 bounded(hyperplane::HyperPlane) = true
 bounded(hyperplane::HyperPlane{Unbounded}) = false
 function optimal(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real,τ::Real)
@@ -66,20 +53,20 @@ function optimal(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real,τ::R
     return θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
 end
 function active(hyperplane::HyperPlane,x::AbstractVector,τ::Real)
-    Gval,g = hyperplane(x)
-    return abs(Gval-g) <= τ*(1+abs(Gval))
+    return abs(gap(hyperplane,x)) <= τ
 end
 function satisfied(hyperplane::HyperPlane,x::AbstractVector,τ::Real)
-    Gval,g = hyperplane(x)
-    return Gval >= g - τ*(1+abs(Gval))
+    return gap(hyperplane,x) >= -τ
 end
 function satisfied(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real,τ::Real)
     Q = cut(x)
-    return θ > -Inf && θ >= Q - τ*(1+abs(Q))
+    return θ > -Inf && θ >= Q - τ
 end
 function gap(hyperplane::HyperPlane,x::AbstractVector)
-    Gval,g = hyperplane(x)
-    return Gval-g
+    if length(hyperplane.δQ) != length(x)
+        throw(ArgumentError(@sprintf("Dimensions of the cut (%d)) and the given optimization vector (%d) does not match",length(hyperplane.δQ),length(x))))
+    end
+    return hyperplane.δQ⋅x-hyperplane.q
 end
 function gap(cut::HyperPlane{OptimalityCut},x::AbstractVector,θ::Real)
     if θ > -Inf
@@ -102,7 +89,6 @@ end
 # Constructors #
 # ======================================================================== #
 function OptimalityCut(subproblem::SubProblem)
-    @assert status(subproblem.solver) == :Optimal
     λ = getduals(subproblem.solver)
     π = subproblem.π
     cols = zeros(length(subproblem.masterterms))
@@ -119,8 +105,7 @@ end
 ArtificialCut(val::Real,dim::Int,id::Int) = OptimalityCut(sparsevec(zeros(dim)), val, id)
 
 function FeasibilityCut(subproblem::SubProblem)
-    @assert status(subproblem.solver) == :Infeasible "Trying to generate feasibility cut from non-infeasible subproblem"
-    λ = getduals(subproblem.solver)
+    λ = getduals(subproblem.feasibility_solver)
     cols = zeros(length(subproblem.masterterms))
     vals = zeros(length(subproblem.masterterms))
     for (s,(i,j,coeff)) in enumerate(subproblem.masterterms)
@@ -128,14 +113,7 @@ function FeasibilityCut(subproblem::SubProblem)
         vals[s] = -λ[i]*coeff
     end
     G = sparsevec(cols,vals,length(subproblem.x))
-    g = getobjval(subproblem.solver)+G⋅subproblem.x
-
-    # Scale to avoid numerical issues
-    scaling = abs(g)
-    if scaling == 0
-        scaling = maximum(G)
-    end
-    G = G/scaling
+    g = getobjval(subproblem.feasibility_solver)+G⋅subproblem.x
 
     return FeasibilityCut(G, g, subproblem.id)
 end
@@ -161,5 +139,31 @@ function linearconstraints(m::JuMP.Model)
     return constraints
 end
 
+Infeasible(subprob::SubProblem) = Infeasible(subprob.id)
 Unbounded(subprob::SubProblem) = Unbounded(subprob.id)
+
+function zero(h::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    return HyperPlane(zero(h.δQ),zero(T),h.id,H)
+end
+function +(h1::HyperPlane{H,T,A},h2::HyperPlane{H,T,A}) where {H <: HyperPlaneType, T <: Real, A <: AbstractVector}
+    return HyperPlane(h1.δQ+h2.δQ,h1.q+h2.q,h1.id,H)
+end
+
+mutable struct CutBundle{T <: Real}
+    cuts::Vector{SparseOptimalityCut{T}}
+    q::T
+
+    function (::Type{CutBundle})(::Type{T}) where T <: Real
+        new{T}(Vector{SparseOptimalityCut{T}}(),zero(T))
+    end
+end
+length(bundle::CutBundle) = length(bundle.cuts)
+function aggregate!(bundle::CutBundle)
+    aggregated_cut = zero(bundle.cuts[1])
+    for j = 1:length(bundle)
+        aggregated_cut += pop!(bundle.cuts)
+    end
+    return aggregated_cut
+end
+
 # ======================================================================== #

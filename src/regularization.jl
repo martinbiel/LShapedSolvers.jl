@@ -134,6 +134,9 @@ end
     if lshaped.parameters.linearize
         # t
         addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
+            updatemodel!(lshaped.mastersolver.lqmodel)
+        end
     end
     # Add quadratic penalty
     c = copy(lshaped.c)
@@ -185,7 +188,11 @@ end
 end
 
 @implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,IsRegularized)
-    solve_linearized_problem!(lshaped,solver)
+    if lshaped.parameters.linearize
+        solve_linearized_problem!(lshaped,solver)
+    else
+        solver(lshaped.mastervector)
+    end
 end
 
 # HasTrustRegion
@@ -275,6 +282,16 @@ end
     end
 end
 
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},HasTrustRegion)
+    @unpack τ = lshaped.parameters
+    if !satisfied(cut,lshaped.ξ,τ)
+        A = [I cut.δQ; cut.δQ' 0]
+        b = [zeros(length(lshaped.ξ)); -gap(cut,lshaped.ξ)]
+        t = A\b
+        lshaped.ξ[:] = lshaped.ξ + t[1:length(lshaped.ξ)]
+    end
+end
+
 # Has Levels
 # ------------------------------------------------------------
 
@@ -286,6 +303,9 @@ end
     if lshaped.parameters.linearize
         # t
         addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
+    end
+    if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
+        updatemodel!(lshaped.projectionsolver.lqmodel)
     end
 end
 
@@ -310,10 +330,14 @@ end
 end
 
 @implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,HasLevels)
-    solve_linearized_problem!(lshaped,solver)
+    if lshaped.parameters.linearize
+        solve_linearized_problem!(lshaped,solver)
+    else
+        solver(lshaped.mastervector)
+    end
 end
 
-@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},HasLevels)
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,HasLevels)
     addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
     # TODO: Rewrite with MathOptInterface
 end
@@ -333,20 +357,31 @@ end
         delconstrs!(lshaped.projectionsolver.lqmodel,[lshaped.solverdata.levelindex])
         addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
+        if lshaped.parameters.linearize
+            if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
+                updatemodel!(lshaped.projectionsolver.lqmodel)
+            end
+            lshaped.solverdata.regularizerindex -= 1
+        end
     end
     # Update regularizer
     add_penalty!(lshaped,lshaped.projectionsolver.lqmodel,zeros(length(lshaped.ξ)+nb),1.0,lshaped.ξ)
     # Solve projection problem
     solve_problem!(lshaped,lshaped.projectionsolver)
     if status(lshaped.projectionsolver) == :Infeasible
-        error("Projection problem is infeasible, aborting procedure.")
+        warn("Projection problem is infeasible, unprojected solution will be used")
+        if Q̃ <= θ
+            # If the upper objective bound is lower than the model lower bound for some reason, reset it.
+            lshaped.solverdata.Q̃ = Inf
+        end
+    else
+        # Update master solution
+        ncols = lshaped.structuredmodel.numCols
+        x = getsolution(lshaped.projectionsolver)
+        lshaped.mastervector[:] = x[1:ncols+nb]
+        lshaped.x[1:ncols] = x[1:ncols]
+        lshaped.θs[:] = x[ncols+1:ncols+nb]
     end
-    # Update master solution
-    ncols = lshaped.structuredmodel.numCols
-    x = getsolution(lshaped.projectionsolver)
-    lshaped.mastervector[:] = x[1:ncols+nb]
-    lshaped.x[1:ncols] = x[1:ncols]
-    lshaped.θs[:] = x[ncols+1:ncols+nb]
     nothing
 end
 

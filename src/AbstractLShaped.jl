@@ -59,7 +59,14 @@ end
 function prepare_master!(lshaped::AbstractLShapedSolver)
     # θs
     for i = 1:nbundles(lshaped)
-        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        if lshaped.parameters.checkfeas
+            addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
+        else
+            addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        end
+        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
+            updatemodel!(lshaped.mastersolver.lqmodel)
+        end
         push!(lshaped.mastervector,-1e10)
         push!(lshaped.θs,-1e10)
     end
@@ -69,38 +76,26 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
     # Solve sub problems
-    any_unbounded = false
-    bundleindex = 1
-    lshaped.subobjectives[bundleindex] = zero(T)
-    bundled_cuts = Vector{SparseHyperPlane{T}}()
+    cut_bundle = CutBundle(T)
     for subproblem ∈ lshaped.subproblems
         cut::SparseHyperPlane{T} = subproblem()
-        if !bounded(cut)
-            any_unbounded = true
-            warn("Subproblem ",cut.id," is unbounded, procedure will abort.")
+        if lshaped.parameters.bundle == 1
+            add_cut!(lshaped,cut)
         else
-            if lshaped.parameters.bundle == 1
-                addcut!(lshaped,cut)
-                lshaped.subobjectives[cut.id] = cut(lshaped.x)
-            else
-                push!(bundled_cuts,cut)
-                lshaped.subobjectives[bundleindex] += cut(lshaped.x)
-                if length(bundled_cuts) == lshaped.parameters.bundle
-                    addcuts!(lshaped,bundled_cuts,bundleindex)
-                    bundleindex += 1
-                    if bundleindex <= length(lshaped.subobjectives)
-                        lshaped.subobjectives[bundleindex] = zero(T)
-                    end
-                end
+            add_to_bundle!(lshaped,cut_bundle,cut)
+            if length(cut_bundle) == lshaped.parameters.bundle
+                aggregated_cut = aggregate!(cut_bundle)
+                add_cut!(lshaped,aggregated_cut)
+                lshaped.subobjectives[aggregated_cut.id] = cut_bundle.q
+                cut_bundle.q = zero(T)
             end
         end
     end
-    if lshaped.parameters.bundle > 1 && length(bundled_cuts) > 0
-        # Add final cut
-        addcuts!(lshaped,bundled_cuts,bundleindex)
-    end
-    if any_unbounded
-        return -Inf
+    if lshaped.parameters.bundle > 1 && length(cut_bundle) > 0 && cut_bundle.q < Inf
+        # Add remaining bundle
+        aggregated_cut = aggregate!(cut_bundle)
+        add_cut!(lshaped,aggregated_cut)
+        lshaped.subobjectives[aggregated_cut.id] = cut_bundle.q
     end
     # Return current objective value
     return current_objective_value(lshaped)
@@ -109,6 +104,9 @@ end
 function iterate_nominal!(lshaped::AbstractLShapedSolver)
     # Resolve all subproblems at the current optimal solution
     Q = resolve_subproblems!(lshaped)
+    if Q == Inf && !lshaped.parameters.checkfeas
+        return :Infeasible
+    end
     if Q == -Inf
         return :Unbounded
     end
@@ -150,6 +148,16 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
             # Optimal
             lshaped.solverdata.Q = calculate_objective_value(lshaped,lshaped.x)
             push!(lshaped.Q_history,lshaped.solverdata.Q)
+            # Final log
+            if lshaped.parameters.log
+                current_gap = gap(lshaped)
+                ProgressMeter.update!(lshaped.progress,current_gap,
+                                      showvalues = [
+                                          ("Objective",Q),
+                                          ("Gap",current_gap),
+                                          ("Number of cuts",length(lshaped.cuts))
+                                      ])
+            end
             return :Optimal
         end
     end
@@ -211,32 +219,72 @@ violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = !satisfied(lsh
 gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = gap(hyperplane,lshaped.x)
 gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lshaped.x,lshaped.θs[cut.id])
 
-function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},Q::Real)
+add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = add_cut!(lshaped,cut,lshaped.subobjectives)
+
+function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector,Q::Real)
     θ = lshaped.θs[cut.id]
     @unpack τ = lshaped.parameters
-
+    # Update objective
+    subobjectives[cut.id] = cut(lshaped.x)
+    # Check if cut gives new information
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem
         return false
     end
-
+    # Ensure that θi is included in minimization if feasibility cuts are used
+    if lshaped.parameters.checkfeas
+        c = getobj(lshaped.mastersolver.lqmodel)
+        if c[length(lshaped.x)+cut.id] == 0.0
+            c[length(lshaped.x)+cut.id] = 1.0
+            setobj!(lshaped.mastersolver.lqmodel,c)
+        end
+    end
+    # Add optimality cut
     process_cut!(lshaped,cut)
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
+        updatemodel!(lshaped.mastersolver.lqmodel)
+    end
     push!(lshaped.cuts,cut)
     return true
 end
-addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},x::AbstractVector) = addcut!(lshaped,cut,cut(x))
-addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = addcut!(lshaped,cut,lshaped.x)
+add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector,x::AbstractVector) = add_cut!(lshaped,cut,subobjectives,cut(x))
+add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector) = add_cut!(lshaped,cut,subobjectives,lshaped.x)
 
-function addcut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut})
+function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},subobjectives::AbstractVector,Q::Real)
+    # Ensure that there is no false convergence
+    subobjectives[cut.id] = Q
+    # Add feasibility cut
     process_cut!(lshaped,cut)
     addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
+        updatemodel!(lshaped.mastersolver.lqmodel)
+    end
     push!(lshaped.cuts,cut)
     return true
 end
+add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},subobjectives::AbstractVector) = add_cut!(lshaped,cut,subobjectives,Inf)
 
-function addcuts!(lshaped::AbstractLShapedSolver,cuts::Vector{<:HyperPlane},i::Integer)
-    addcut!(lshaped,aggregate!(cuts,i))
+function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Infeasible},subobjectives::AbstractVector)
+    warn("Subproblem ",cut.id," is infeasible, procedure will abort.")
+    subobjectives[cut.id] = Inf
+    return true
+end
+
+function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Unbounded},subobjectives::AbstractVector)
+    warn("Subproblem ",cut.id," is unbounded, procedure will abort.")
+    subobjectives[cut.id] = -Inf
+    return true
+end
+
+function add_to_bundle!(lshaped::AbstractLShapedSolver,bundle::CutBundle,cut::HyperPlane)
+    add_cut!(lshaped,cut)
+    bundle.q += cut(lshaped.x)
+end
+
+function add_to_bundle!(lshaped::AbstractLShapedSolver,bundle::CutBundle,cut::HyperPlane{OptimalityCut})
+    push!(bundle.cuts,cut)
+    bundle.q += cut(lshaped.x)
 end
 
 function show(io::IO, lshaped::AbstractLShapedSolver)

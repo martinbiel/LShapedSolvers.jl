@@ -4,8 +4,9 @@
         ξ::Vector{Float64}
     end
 
-    function StochasticPrograms.expected(sds::Vector{InfeasibleScenario})
-        sd = InfeasibleScenario(1,sum([s.π*s.ξ for s in sds]))
+    function StochasticPrograms.expected(scenarios::Vector{InfeasibleScenario})
+        isempty(scenarios) && return InfeasibleScenario(1.,zeros(2))
+        sd = InfeasibleScenario(1.,sum([s.π*s.ξ for s in scenarios]))
     end
 end
 
@@ -31,5 +32,3 @@ end
     @constraint(model, 3*y1 + 2*y2 <= x1)
     @constraint(model, 2*y1 + 5*y2 <= x2)
 end
-
-push!(problems,(sp,"Infeasible"))

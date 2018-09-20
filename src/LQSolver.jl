@@ -28,11 +28,13 @@ function (solver::LQSolver)(x₀::AbstractVector)
 end
 
 function getsolution(solver::LQSolver)
+    n = numvar(solver.lqmodel)
     optimstatus = status(solver)
     if optimstatus == :Optimal
         return getsolution(solver.lqmodel)
     else
-        error("LP was not solved to optimality, returned status: ", optimstatus)
+        warn("LP was not solved to optimality, returned status: ", optimstatus)
+        return fill(NaN, n)
     end
 end
 
@@ -87,6 +89,14 @@ function getduals(solver::LQSolver)
 end
 
 status(solver::LQSolver) = MathProgBase.SolverInterface.status(solver.lqmodel)
+
+function feasibility_problem!(solver::LQSolver)
+    setobj!(solver.lqmodel,zeros(numvar(solver.lqmodel)))
+    for i = 1:numconstr(solver.lqmodel)
+        addvar!(solver.lqmodel,[i],[1.0],0.0,Inf,1.0)
+        addvar!(solver.lqmodel,[i],[-1.0],0.0,Inf,1.0)
+    end
+end
 
 function loadLP(m::JuMP.Model)
     l = m.colLower
