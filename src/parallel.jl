@@ -3,8 +3,8 @@
 # ------------------------------------------------------------
 @define_trait IsParallel
 
-@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
+    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         # Prepare the subproblems
         m = lshaped.structuredmodel
         load_subproblems!(lshaped,scenarioproblems(m),subsolver)
@@ -12,7 +12,7 @@
         return lshaped
     end
 
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
         # Partitioning
         (jobsize,extra) = divrem(nscenarios(lshaped),nworkers())
@@ -32,7 +32,7 @@
         m = lshaped.structuredmodel
         start = 1
         stop = jobsize
-        active_workers = Vector{Future}(nworkers())
+        active_workers = Vector{Future}(undef,nworkers())
 
         for w in workers()
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
@@ -164,7 +164,7 @@ end
 
 @define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,!IsParallel)
-        active_workers = Vector{Future}(length(scenarioproblems))
+        active_workers = Vector{Future}(undef,StochasticPrograms.nsubproblems(scenarioproblems))
         j = 1
         for w in workers()
             n = remotecall_fetch((sp)->length(fetch(sp).problems),w,scenarioproblems[w-1])
@@ -182,7 +182,7 @@ end
     end
 
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.DScenarioProblems,IsParallel)
-        active_workers = Vector{Future}(nworkers())
+        active_workers = Vector{Future}(undef,nworkers())
         for w in workers()
             active_workers[w-1] = remotecall(fill_submodels!,
                                              w,
@@ -196,7 +196,7 @@ end
 
 # Parallel routines #
 # ======================================================================== #
-mutable struct DecisionChannel{A <: AbstractArray} <: AbstractChannel
+mutable struct DecisionChannel{A <: AbstractArray} <: AbstractChannel{A}
     decisions::Dict{Int,A}
     cond_take::Condition
     DecisionChannel(decisions::Dict{Int,A}) where A <: AbstractArray = new{A}(decisions, Condition())
@@ -235,7 +235,7 @@ Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
-function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.ScenarioProblems,subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.ScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
     id = 1
     for i = 1:lshaped.nscenarios
         m = subproblem(scenarioproblems,i)
@@ -255,7 +255,7 @@ function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems:
     return lshaped
 end
 
-function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.DScenarioProblems,subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.DScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
     id = 1
     for i = 1:lshaped.nscenarios
         m = subproblem(scenarioproblems,i)
@@ -282,7 +282,7 @@ function load_worker!(sp::StochasticPrograms.ScenarioProblems,
                       start::Integer,
                       stop::Integer,
                       start_id::Integer,
-                      subsolver::AbstractMathProgSolver,
+                      subsolver::MPB.AbstractMathProgSolver,
                       bundlesize::Integer,
                       checkfeas::Bool)
     problems = [sp.problems[i] for i = start:stop]
@@ -307,7 +307,7 @@ function load_worker!(sp::StochasticPrograms.DScenarioProblems,
                       start::Integer,
                       stop::Integer,
                       start_id::Integer,
-                      subsolver::AbstractMathProgSolver,
+                      subsolver::MPB.AbstractMathProgSolver,
                       bundlesize::Integer,
                       checkfeas::Bool)
     return remotecall(init_subworker!,
@@ -326,11 +326,11 @@ function init_subworker!(subworker::SubWorker{T,A,S},
                          submodels::Vector{JuMP.Model},
                          πs::A,
                          x::A,
-                         subsolver::AbstractMathProgSolver,
+                         subsolver::MPB.AbstractMathProgSolver,
                          bundlesize::Integer,
                          checkfeas::Bool,
                          start_id::Integer) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems = Vector{SubProblem{T,A,S}}(length(submodels))
+    subproblems = Vector{SubProblem{T,A,S}}(undef,length(submodels))
     id = start_id
     for (i,submodel) = enumerate(submodels)
         y₀ = convert(A,rand(submodel.numCols))
@@ -345,12 +345,12 @@ end
 function init_subworker!(subworker::SubWorker{T,A,S},
                          scenarioproblems::ScenarioProblems,
                          x::A,
-                         subsolver::AbstractMathProgSolver,
+                         subsolver::MPB.AbstractMathProgSolver,
                          bundlesize::Integer,
                          checkfeas::Bool,
                          start_id::Integer) where {T <: Real, A <: AbstractArray, S <: LQSolver}
     sp = fetch(scenarioproblems)
-    subproblems = Vector{SubProblem{T,A,S}}(length(sp))
+    subproblems = Vector{SubProblem{T,A,S}}(undef,StochasticPrograms.nsubproblems(sp))
     id = start_id
     for (i,submodel) = enumerate(sp.problems)
         y₀ = convert(A,rand(sp.problems[i].numCols))
@@ -472,12 +472,12 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         # Add new cuts from subworkers
         t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
         if Q == Inf && !lshaped.parameters.checkfeas
-            warn("Subproblem ",cut.id," is infeasible, aborting procedure.")
+            @warn "Subproblem $cut.id is infeasible, aborting procedure."
             return :Infeasible
         end
         if !bounded(cut)
             map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
-            warn("Subproblem ",cut.id," is unbounded, aborting procedure.")
+            @warn "Subproblem $cut.id is unbounded, aborting procedure."
             return :Unbounded
         end
         add_cut!(lshaped,cut,lshaped.subobjectives[t],Q)
@@ -510,12 +510,12 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             # Master problem could not be solved for some reason.
             @unpack Q,θ = lshaped.solverdata
             gap = abs(θ-Q)/(abs(Q)+1e-10)
-            warn("Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure.")
+            @warn "Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure."
             map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
             return :StoppedPrematurely
         end
         if status(lshaped.mastersolver) == :Infeasible
-            warn("Master is infeasible. Aborting procedure.")
+            @warn "Master is infeasible. Aborting procedure."
             map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
             return :Infeasible
         end

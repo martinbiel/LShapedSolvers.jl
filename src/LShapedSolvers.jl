@@ -1,6 +1,13 @@
 __precompile__()
 module LShapedSolvers
 
+# Standard library
+using LinearAlgebra
+using SparseArrays
+using Distributed
+using Printf
+
+# External libraries
 using TraitDispatch
 using Parameters
 using JuMP
@@ -9,14 +16,12 @@ using MathProgBase
 using RecipesBase
 using ProgressMeter
 using Gurobi
-using Gurobi.updatemodel!
+using Gurobi: updatemodel!
 
 import Base: show, put!, wait, isready, take!, fetch, zero, +, length
 import StochasticPrograms: StructuredModel, optimsolver, optimize_structured!, fill_solution!
-importall MathProgBase.SolverInterface
 
-using Base.Order: Ordering, ReverseOrdering, Reverse
-using DataStructures: PriorityQueue,enqueue!,dequeue!
+const MPB = MathProgBase
 
 export
     LShapedSolver,

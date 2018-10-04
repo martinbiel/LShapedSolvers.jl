@@ -65,43 +65,6 @@ end
     end
 end
 
-@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,IsRegularized)
-    push!(lshaped.committee,cut)
-    nothing
-end
-
-@define_traitfn UsesRegularization remove_inactive!(lshaped::AbstractLShapedSolver) = begin
-    function remove_inactive!(lshaped::AbstractLShapedSolver,UsesRegularization)
-        inactive = find(c->!active(lshaped,c),lshaped.committee)
-        diff = length(lshaped.committee) - length(lshaped.structuredmodel.linconstr) - nbundles(lshaped)
-        if isempty(inactive) || diff <= 0
-            return false
-        end
-        if diff <= length(inactive)
-            inactive = inactive[1:diff]
-        end
-        append!(lshaped.inactive,lshaped.committee[inactive])
-        deleteat!(lshaped.committee,inactive)
-        delconstrs!(lshaped.mastersolver.lqmodel,inactive)
-        return true
-    end
-end
-
-@define_traitfn UsesRegularization queueViolated!(lshaped::AbstractLShapedSolver) = begin
-    function queueViolated!(lshaped::AbstractLShapedSolver,UsesRegularization)
-        violating = find(c->violated(lshaped,c),lshaped.inactive)
-        if isempty(violating)
-            return false
-        end
-        gaps = map(c->gap(lshaped,c),lshaped.inactive[violating])
-        for (c,g) in zip(lshaped.inactive[violating],gaps)
-            enqueue!(lshaped.violating,c,g)
-        end
-        deleteat!(lshaped.inactive,violating)
-        return true
-    end
-end
-
 @define_traitfn UsesRegularization project!(lshaped::AbstractLShapedSolver) = begin
     function project!(lshaped::AbstractLShapedSolver,!UsesRegularization)
         nothing
@@ -120,12 +83,12 @@ end
             σ̅ = max(4.0,0.01*norm(lshaped.x,Inf))
             σ̲ = min(2.0,0.001*norm(lshaped.x,Inf))
             σ = min(3.0,0.005*norm(lshaped.x,Inf))
-            @pack lshaped.parameters = σ,σ̅,σ̲
+            @pack! lshaped.parameters = σ,σ̅,σ̲
         else
             σ̅ = max(4.0,norm(lshaped.x))
             σ̲ = min(2.0,0.005*norm(lshaped.x))
             σ = σ̲
-            @pack lshaped.parameters = σ,σ̅,σ̲
+            @pack! lshaped.parameters = σ,σ̅,σ̲
         end
     end
     lshaped.solverdata.σ = lshaped.parameters.σ
@@ -133,7 +96,7 @@ end
     # Add ∞-norm auxilliary variable
     if lshaped.parameters.linearize
         # t
-        addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
         if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
             updatemodel!(lshaped.mastersolver.lqmodel)
         end
@@ -158,7 +121,7 @@ end
 
 @implement_traitfn function take_step!(lshaped::AbstractLShapedSolver,IsRegularized)
     @unpack Q,Q̃,θ,σ = lshaped.solverdata
-    @unpack τ,σ̅,σ̲ = lshaped.parameters
+    @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
     need_update = false
     if abs(θ-Q) <= τ*(1+abs(θ)) || lshaped.solverdata.major_iterations == 0
         lshaped.ξ[:] = lshaped.x[:]
@@ -205,7 +168,7 @@ end
     if lshaped.parameters.autotune
         Δ = max(1.0,0.01*norm(lshaped.x,Inf))
         Δ̅ = max(1000.0,norm(lshaped.x,Inf))
-        @pack lshaped.parameters = Δ,Δ̅
+        @pack! lshaped.parameters = Δ,Δ̅
     end
     lshaped.solverdata.Δ = lshaped.parameters.Δ
     set_trustregion!(lshaped)
@@ -246,12 +209,12 @@ end
 
 @implement_traitfn function set_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
     nb = nbundles(lshaped)
-    l = max.(lshaped.structuredmodel.colLower, lshaped.ξ-lshaped.solverdata.Δ)
+    l = max.(lshaped.structuredmodel.colLower, lshaped.ξ .- lshaped.solverdata.Δ)
     append!(l,fill(-Inf,nb))
-    u = min.(lshaped.structuredmodel.colUpper, lshaped.ξ+lshaped.solverdata.Δ)
+    u = min.(lshaped.structuredmodel.colUpper, lshaped.ξ .+ lshaped.solverdata.Δ)
     append!(u,fill(Inf,nb))
-    setvarLB!(lshaped.mastersolver.lqmodel,l)
-    setvarUB!(lshaped.mastersolver.lqmodel,u)
+    MPB.setvarLB!(lshaped.mastersolver.lqmodel,l)
+    MPB.setvarUB!(lshaped.mastersolver.lqmodel,u)
 end
 
 @implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver,HasTrustRegion)
@@ -285,7 +248,7 @@ end
 @implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},HasTrustRegion)
     @unpack τ = lshaped.parameters
     if !satisfied(cut,lshaped.ξ,τ)
-        A = [I cut.δQ; cut.δQ' 0]
+        A = [I cut.δQ; cut.δQ' 0*I]
         b = [zeros(length(lshaped.ξ)); -gap(cut,lshaped.ξ)]
         t = A\b
         lshaped.ξ[:] = lshaped.ξ + t[1:length(lshaped.ξ)]
@@ -298,11 +261,11 @@ end
 @implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver,HasLevels)
     # θs
     for i = 1:nbundles(lshaped)
-        addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,0.0)
+        MPB.addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,0.0)
     end
     if lshaped.parameters.linearize
         # t
-        addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
+        MPB.addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
     end
     if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
         updatemodel!(lshaped.projectionsolver.lqmodel)
@@ -338,7 +301,7 @@ end
 end
 
 @implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane,HasLevels)
-    addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
+    MPB.addconstr!(lshaped.projectionsolver.lqmodel,lowlevel(cut)...)
     # TODO: Rewrite with MathOptInterface
 end
 
@@ -347,15 +310,15 @@ end
     @unpack λ = lshaped.parameters
     # Update level (TODO: Rewrite with MathOptInterface)
     nb = nbundles(lshaped)
-    c = sparse(getobj(lshaped.mastersolver.lqmodel))
+    c = sparse(MPB.getobj(lshaped.mastersolver.lqmodel))
     L = (1-λ)*θ + λ*Q̃
     push!(lshaped.levels,L)
     if lshaped.solverdata.levelindex == -1
-        addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
+        MPB.addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
     else
-        delconstrs!(lshaped.projectionsolver.lqmodel,[lshaped.solverdata.levelindex])
-        addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
+        MPB.delconstrs!(lshaped.projectionsolver.lqmodel,[lshaped.solverdata.levelindex])
+        MPB.addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
         if lshaped.parameters.linearize
             if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
@@ -369,7 +332,7 @@ end
     # Solve projection problem
     solve_problem!(lshaped,lshaped.projectionsolver)
     if status(lshaped.projectionsolver) == :Infeasible
-        warn("Projection problem is infeasible, unprojected solution will be used")
+        @warn "Projection problem is infeasible, unprojected solution will be used"
         if Q̃ <= θ
             # If the upper objective bound is lower than the model lower bound for some reason, reset it.
             lshaped.solverdata.Q̃ = Inf
@@ -385,7 +348,7 @@ end
     nothing
 end
 
-function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector)
+function add_penalty!(lshaped::AbstractLShapedSolver,model::MPB.AbstractLinearQuadraticModel,c::AbstractVector,α::Real,ξ::AbstractVector)
     nb = nbundles(lshaped)
     if lshaped.parameters.linearize
         ncols = lshaped.structuredmodel.numCols
@@ -393,14 +356,14 @@ function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadra
         j = lshaped.solverdata.regularizerindex
         if j == -1
             for i in 1:ncols
-                addconstr!(model,[i,tidx],[-α,1],-α*ξ[i],Inf)
-                addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
+                MPB.addconstr!(model,[i,tidx],[-α,1],-α*ξ[i],Inf)
+                MPB.addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
         else
-            delconstrs!(model,collect(j:j+2*ncols-1))
+            MPB.delconstrs!(model,collect(j:j+2*ncols-1))
             for i in 1:ncols
-                addconstr!(model,[i,tidx],[-α,1],-ξ[i],Inf)
-                addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
+                MPB.addconstr!(model,[i,tidx],[-α,1],-ξ[i],Inf)
+                MPB.addconstr!(model,[i,tidx],[-α,-1],-Inf,-ξ[i])
             end
         end
         lshaped.solverdata.regularizerindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
@@ -410,13 +373,13 @@ function add_penalty!(lshaped::AbstractLShapedSolver,model::AbstractLinearQuadra
     else
         # Linear part
         c[1:length(ξ)] -= α*ξ
-        setobj!(model,c)
+        MPB.setobj!(model,c)
         # Quadratic part
         qidx = collect(1:length(ξ)+nb)
         qval = fill(α,length(lshaped.ξ))
         append!(qval,zeros(nb))
-        if applicable(setquadobj!,model,qidx,qidx,qval)
-            setquadobj!(model,qidx,qidx,qval)
+        if applicable(MPB.setquadobj!,model,qidx,qidx,qval)
+            MPB.setquadobj!(model,qidx,qidx,qval)
         else
             error("Setting a quadratic penalty requires a solver that handles quadratic objectives")
         end

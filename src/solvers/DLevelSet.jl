@@ -74,9 +74,9 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
     @implement_trait DLevelSet HasLevels
     @implement_trait DLevelSet IsParallel
 
-    function (::Type{DLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{DLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
         if nworkers() == 1
-            warn("There are no worker processes, defaulting to serial version of algorithm")
+            @warn "There are no worker processes, defaulting to serial version of algorithm"
             return LevelSet(model,ξ₀,mastersolver,subsolver; kw...)
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
@@ -93,7 +93,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
         msolver = LQSolver(model,mastersolver)
         psolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
@@ -107,11 +107,11 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
                                n,
                                Vector{A}(),
                                Vector{Int}(),
-                               Vector{SubWorker{T,A,S}}(nworkers()),
-                               Vector{Work}(nworkers()),
+                               Vector{SubWorker{T,A,S}}(undef,nworkers()),
+                               Vector{Work}(undef,nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               Vector{Future}(nworkers()),
+                               Vector{Future}(undef,nworkers()),
                                ξ₀_,
                                A(),
                                A(),
@@ -125,7 +125,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <
         return lshaped
     end
 end
-DLevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = DLevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DLevelSet(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = DLevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::DLevelSet)()
     # Reset timer

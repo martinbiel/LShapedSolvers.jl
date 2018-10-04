@@ -25,28 +25,27 @@ s1 = FarmerScenario(1/3,Dict(:wheat=>3.0,:corn=>3.6,:beets=>24.0))
 s2 = FarmerScenario(1/3,Dict(:wheat=>2.5,:corn=>3.0,:beets=>20.0))
 s3 = FarmerScenario(1/3,Dict(:wheat=>2.0,:corn=>2.4,:beets=>16.0))
 
-sp = StochasticProgram((Crops,Cost,Budget),(Required,PurchasePrice,SellPrice),[s1,s2,s3])
+farmer = StochasticProgram((Crops,Cost,Budget),(Required,PurchasePrice,SellPrice),[s1,s2,s3])
 
-@first_stage sp = begin
+@first_stage farmer = begin
     (Crops,Cost,Budget) = stage
     @variable(model, x[c = Crops] >= 0)
     @objective(model, Min, sum(Cost[c]*x[c] for c in Crops))
     @constraint(model, sum(x[c] for c in Crops) <= Budget)
 end
 
-@second_stage sp = begin
+@second_stage farmer = begin
     @decision x
     (Required,PurchasePrice,SellPrice) = stage
-    s = scenario
     @variable(model, y[p = Purchased] >= 0)
     @variable(model, w[s = Sold] >= 0)
     @objective(model, Min, sum( PurchasePrice[p] * y[p] for p = Purchased) - sum( SellPrice[s] * w[s] for s in Sold))
 
     @constraint(model, const_minreq[p=Purchased],
-                   s.Yield[p] * x[p] + y[p] - w[p] >= Required[p])
+                   scenario.Yield[p] * x[p] + y[p] - w[p] >= Required[p])
     @constraint(model, const_minreq_beets,
-                   s.Yield[:beets] * x[:beets] - w[:beets_quota] - w[:beets_extra] >= Required[:beets])
+                   scenario.Yield[:beets] * x[:beets] - w[:beets_quota] - w[:beets_extra] >= Required[:beets])
     @constraint(model, const_aux, w[:beets_quota] <= 6000)
 end
 
-push!(problems,(sp,"Farmer"))
+push!(problems,(farmer,"Farmer"))

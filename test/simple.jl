@@ -16,16 +16,16 @@ s2 = SimpleScenario(0.6,[300.0,300],[-28.0,-32])
 
 sds = [s1,s2]
 
-sp = StochasticProgram(sds)
+simple = StochasticProgram(sds)
 
-@first_stage sp = begin
+@first_stage simple = begin
     @variable(model, x₁ >= 40)
     @variable(model, x₂ >= 20)
     @objective(model, Min, 100*x₁ + 150*x₂)
     @constraint(model, x₁+x₂ <= 120)
 end
 
-@second_stage sp = begin
+@second_stage simple = begin
     @decision x₁ x₂
     s = scenario
     @variable(model, 0 <= y₁ <= s.d[1])
@@ -35,4 +35,4 @@ end
     @constraint(model, 8*y₁ + 5*y₂ <= 80*x₂)
 end
 
-push!(problems,(sp,"Simple"))
+push!(problems,(simple,"Simple"))

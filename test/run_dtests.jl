@@ -1,14 +1,19 @@
-using Base.Test
+using Test
+using Distributed
 include("/usr/share/julia/test/testenv.jl")
 addprocs_with_testenv(3)
 @test nworkers() == 3
+
+@everywhere using Logging
+for w in workers()
+    # Do not log on worker nodes
+    remotecall(()->global_logger(NullLogger()),w)
+end
 
 @everywhere using StochasticPrograms
 using LShapedSolvers
 using JuMP
 using Gurobi
-
-@everywhere logging(DevNull, kind=:warn)
 
 τ = 1e-5
 reference_solver = GurobiSolver(OutputFlag=0)
@@ -23,13 +28,13 @@ lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped")
             (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
-info("Loading test problems...")
-info("Loading simple...")
+@info "Loading test problems..."
+@info "Loading simple..."
 include("simple.jl")
-info("Loading farmer...")
+@info "Loading farmer..."
 include("farmer.jl")
 
-info("Test problems loaded. Starting test sequence.")
+@info "Test problems loaded. Starting test sequence."
 @testset "Distributed $lsname Solver with Distributed Data: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
     solve(sp,solver=reference_solver)
     x̄ = copy(sp.colVal)
@@ -38,7 +43,7 @@ info("Test problems loaded. Starting test sequence.")
     @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
-@testset "Distributed Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
+@testset "Distributed Bundled $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
     solve(sp,solver=reference_solver)
     x̄ = optimal_decision(sp)
     Q̄ = optimal_value(sp)
@@ -62,30 +67,36 @@ end
     solve(sp,solver=reference_solver)
     x̄ = copy(sp.colVal)
     Q̄ = copy(sp.objVal)
-    solve(sp,solver=lsolver)
+    with_logger(NullLogger()) do
+        solve(sp,solver=lsolver)
+    end
     @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
-info("Loading infeasible...")
+@info "Loading infeasible..."
 include("infeasible.jl")
 lsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped")]
 @testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-    solve(sp,solver=reference_solver)
-    x̄ = optimal_decision(sp)
-    Q̄ = optimal_value(sp)
-    @test solve(sp,solver=lsolver) == :Infeasible
+    solve(infeasible,solver=reference_solver)
+    x̄ = optimal_decision(infeasible)
+    Q̄ = optimal_value(infeasible)
+    with_logger(NullLogger()) do
+        @test solve(infeasible,solver=lsolver) == :Infeasible
+    end
     add_params!(lsolver,checkfeas=true)
-    solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+    solve(infeasible,solver=lsolver)
+    @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 @testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-    solve(sp,solver=reference_solver)
-    x̄ = optimal_decision(sp)
-    Q̄ = optimal_value(sp)
+    solve(infeasible,solver=reference_solver)
+    x̄ = optimal_decision(infeasible)
+    Q̄ = optimal_value(infeasible)
     add_params!(lsolver,checkfeas=false,bundle=2)
-    @test solve(sp,solver=lsolver) == :Infeasible
+    with_logger(NullLogger()) do
+        @test solve(infeasible,solver=lsolver) == :Infeasible
+    end
     add_params!(lsolver,checkfeas=true,bundle=2)
-    solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+    solve(infeasible,solver=lsolver)
+    @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end

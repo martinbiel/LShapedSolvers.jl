@@ -81,9 +81,9 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     @implement_trait DTrustRegion HasTrustRegion
     @implement_trait DTrustRegion IsParallel
 
-    function (::Type{DTrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{DTrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
         if nworkers() == 1
-            warn("There are no worker processes, defaulting to serial version of algorithm")
+            @warn "There are no worker processes, defaulting to serial version of algorithm"
             return TrustRegion(model,ξ₀,mastersolver,subsolver; kw...)
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
@@ -99,7 +99,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
 
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
@@ -112,11 +112,11 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                n,
                                Vector{A}(),
                                Vector{Int}(),
-                               Vector{SubWorker{T,A,S}}(nworkers()),
-                               Vector{Work}(nworkers()),
+                               Vector{SubWorker{T,A,S}}(undef,nworkers()),
+                               Vector{Work}(undef,nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               Vector{Future}(nworkers()),
+                               Vector{Future}(undef,nworkers()),
                                ξ₀_,
                                Vector{Inf}(),
                                A(),
@@ -131,7 +131,7 @@ struct DTrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         return lshaped
     end
 end
-DTrustRegion(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = DTrustRegion(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DTrustRegion(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = DTrustRegion(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::DTrustRegion)()
     # Reset timer

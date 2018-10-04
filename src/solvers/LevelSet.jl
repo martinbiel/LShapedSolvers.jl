@@ -41,10 +41,6 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     c::A
     x::A
 
-    committee::Vector{SparseHyperPlane{T}}
-    inactive::Vector{SparseHyperPlane{T}}
-    violating::PriorityQueue{SparseHyperPlane{T},T}
-
     # Subproblems
     nscenarios::Int
     subproblems::Vector{SubProblem{T,A,S}}
@@ -67,9 +63,9 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
 
     @implement_trait LevelSet HasLevels
 
-    function (::Type{LevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{LevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
         if nworkers() > 1
-            warn("There are worker processes, consider using distributed version of algorithm")
+            @warn "There are worker processes, consider using distributed version of algorithm"
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
@@ -85,7 +81,7 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         msolver = LQSolver(model,mastersolver)
         psolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
@@ -95,9 +91,6 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
                                mastervector,
                                c_,
                                x₀_,
-                               convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
-                               Vector{SparseHyperPlane{T}}(),
-                               PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{SubProblem{T,A,S}}(),
                                A(),
@@ -115,7 +108,7 @@ struct LevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         return lshaped
     end
 end
-LevelSet(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LevelSet(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = LevelSet(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::LevelSet)()
     # Reset timer

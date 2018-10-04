@@ -48,9 +48,9 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
     parameters::LShapedParameters{T}
     progress::ProgressThresh{T}
 
-    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
         if nworkers() > 1
-            warn("There are worker processes, consider using distributed version of algorithm")
+            @warn "There are worker processes, consider using distributed version of algorithm"
         end
         length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
         !haskey(model.ext,:SP) && error("The provided model is not structured")
@@ -64,7 +64,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
 
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
@@ -87,7 +87,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
         return lshaped
     end
 end
-LShaped(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::LShaped)()
     # Reset timer

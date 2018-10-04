@@ -37,16 +37,16 @@ L-Shaped Gap  Time: 0:00:01 (6 iterations)
 """
 struct LShapedSolver <: AbstractStructuredSolver
     variant::Symbol
-    lpsolver::AbstractMathProgSolver
-    subsolver::AbstractMathProgSolver
+    lpsolver::MPB.AbstractMathProgSolver
+    subsolver::MPB.AbstractMathProgSolver
     crash::Crash.CrashMethod
-    parameters
+    parameters::Dict{Symbol,Any}
 
-    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, kwargs...)
-        return new(variant,lpsolver,subsolver,crash,kwargs)
+    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, kwargs...)
+        return new(variant,lpsolver,subsolver,crash,Dict{Symbol,Any}(kwargs))
     end
 end
-LShapedSolver(lpsolver::AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
+LShapedSolver(lpsolver::MPB.AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
 
 function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
     x₀ = solver.crash(stochasticprogram,solver.lpsolver)
@@ -72,7 +72,7 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
 end
 
 function add_params!(solver::LShapedSolver; kwargs...)
-    append!(solver.parameters,kwargs)
+    push!(solver.parameters,kwargs...)
 end
 
 function optimsolver(solver::LShapedSolver)
@@ -88,12 +88,12 @@ function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.M
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
     stochasticprogram.colVal = copy(lshaped.x)
     stochasticprogram.redCosts = try
-        getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
+        MPB.getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
     catch
         fill(NaN, ncols)
     end
     stochasticprogram.linconstrDuals = try
-        getconstrduals(lshaped.mastersolver.lqmodel)[1:nrows]
+        MPB.getconstrduals(lshaped.mastersolver.lqmodel)[1:nrows]
     catch
         fill(NaN, nrows)
     end

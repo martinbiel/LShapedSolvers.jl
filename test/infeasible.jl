@@ -15,15 +15,15 @@ s2 = InfeasibleScenario(0.5,[4,4])
 
 sds = [s1,s2]
 
-sp = StochasticProgram(sds)
+infeasible = StochasticProgram(sds)
 
-@first_stage sp = begin
+@first_stage infeasible = begin
     @variable(model, x1 >= 0)
     @variable(model, x2 >= 0)
     @objective(model, Min, 3*x1 + 2*x2)
 end
 
-@second_stage sp = begin
+@second_stage infeasible = begin
     @decision x1 x2
     s = scenario
     @variable(model, 0.8*s.ξ[1] <= y1 <= s.ξ[1])

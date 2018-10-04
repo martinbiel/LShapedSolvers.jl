@@ -13,6 +13,7 @@ end
 @with_kw mutable struct DRegularizedParameters{T <: Real}
     κ::T = 0.6
     τ::T = 1e-6
+    γ::T = 0.9
     σ::T = 1.0
     σ̅::T = 4.0
     σ̲::T = 0.5
@@ -52,10 +53,6 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     x::A
     Q_history::A
 
-    committee::Vector{SparseHyperPlane{T}}
-    inactive::Vector{SparseHyperPlane{T}}
-    violating::PriorityQueue{SparseHyperPlane{T},T}
-
     # Subproblems
     nscenarios::Int
     subobjectives::Vector{A}
@@ -85,9 +82,9 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     @implement_trait DRegularized IsRegularized
     @implement_trait DRegularized IsParallel
 
-    function (::Type{DRegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...)
+    function (::Type{DRegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
         if nworkers() == 1
-            warn("There are no worker processes, defaulting to serial version of algorithm")
+            @warn "There are no worker processes, defaulting to serial version of algorithm"
             return Regularized(model,ξ₀,mastersolver,subsolver; kw...)
         end
         length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
@@ -103,7 +100,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
 
         msolver = LQSolver(model,mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
         lshaped = new{T,A,M,S}(model,
@@ -113,17 +110,14 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
                                c_,
                                x₀_,
                                A(),
-                               convert(Vector{SparseHyperPlane{T}},linearconstraints(model)),
-                               Vector{SparseHyperPlane{T}}(),
-                               PriorityQueue{SparseHyperPlane{T},T}(Reverse),
                                n,
                                Vector{A}(),
                                Vector{Int}(),
-                               Vector{SubWorker{T,A,S}}(nworkers()),
-                               Vector{Work}(nworkers()),
+                               Vector{SubWorker{T,A,S}}(undef,nworkers()),
+                               Vector{Work}(undef,nworkers()),
                                RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
                                RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               Vector{Future}(nworkers()),
+                               Vector{Future}(undef,nworkers()),
                                ξ₀_,
                                A(),
                                A(),
@@ -137,7 +131,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         return lshaped
     end
 end
-DRegularized(model::JuMP.Model,mastersolver::AbstractMathProgSolver,subsolver::AbstractMathProgSolver; kw...) = DRegularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DRegularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = DRegularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
 
 function (lshaped::DRegularized)()
     # Reset timer

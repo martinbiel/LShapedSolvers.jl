@@ -4,7 +4,7 @@ nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
 # Initialization #
 # ======================================================================== #
-function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Initialize progress meter
     lshaped.progress.thresh = lshaped.parameters.τ
     # Cap bundle size
@@ -60,9 +60,9 @@ function prepare_master!(lshaped::AbstractLShapedSolver)
     # θs
     for i = 1:nbundles(lshaped)
         if lshaped.parameters.checkfeas
-            addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
+            MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
         else
-            addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+            MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
         end
         if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
             updatemodel!(lshaped.mastersolver.lqmodel)
@@ -120,11 +120,11 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
         # Master problem could not be solved for some reason.
         @unpack Q,θ = lshaped.solverdata
         gap = abs(θ-Q)/(abs(Q)+1e-10)
-        warn("Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure.")
+        @warn "Master problem could not be solved, solver returned status $(status(lshaped.mastersolver)). The following relative tolerance was reached: $(@sprintf("%.1e",gap)). Aborting procedure."
         return :StoppedPrematurely
     end
     if status(lshaped.mastersolver) == :Infeasible
-        warn("Master is infeasible. Aborting procedure.")
+        @warn "Master is infeasible. Aborting procedure."
         return :Infeasible
     end
     # Update master solution
@@ -233,15 +233,15 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},
     end
     # Ensure that θi is included in minimization if feasibility cuts are used
     if lshaped.parameters.checkfeas
-        c = getobj(lshaped.mastersolver.lqmodel)
+        c = MPB.getobj(lshaped.mastersolver.lqmodel)
         if c[length(lshaped.x)+cut.id] == 0.0
             c[length(lshaped.x)+cut.id] = 1.0
-            setobj!(lshaped.mastersolver.lqmodel,c)
+            MPB.setobj!(lshaped.mastersolver.lqmodel,c)
         end
     end
     # Add optimality cut
     process_cut!(lshaped,cut)
-    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
         updatemodel!(lshaped.mastersolver.lqmodel)
     end
@@ -256,7 +256,7 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut}
     subobjectives[cut.id] = Q
     # Add feasibility cut
     process_cut!(lshaped,cut)
-    addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
     if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
         updatemodel!(lshaped.mastersolver.lqmodel)
     end
@@ -266,13 +266,13 @@ end
 add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},subobjectives::AbstractVector) = add_cut!(lshaped,cut,subobjectives,Inf)
 
 function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Infeasible},subobjectives::AbstractVector)
-    warn("Subproblem ",cut.id," is infeasible, procedure will abort.")
+    @warn "Subproblem $cut.id is infeasible, procedure will abort."
     subobjectives[cut.id] = Inf
     return true
 end
 
 function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Unbounded},subobjectives::AbstractVector)
-    warn("Subproblem ",cut.id," is unbounded, procedure will abort.")
+    @warn "Subproblem $cut.id is unbounded, procedure will abort."
     subobjectives[cut.id] = -Inf
     return true
 end
