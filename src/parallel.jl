@@ -137,7 +137,7 @@ end
 @define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver,scenarioproblems::StochasticPrograms.ScenarioProblems,!IsParallel)
         for (i,submodel) in enumerate(scenarioproblems.problems)
-            lshaped.subproblems[i](lshaped.x)
+            lshaped.subproblems[i](decision(lshaped))
             fill_submodel!(submodel,lshaped.subproblems[i])
         end
     end
@@ -155,7 +155,7 @@ end
                                                                                w,
                                                                                lshaped.subworkers[w-1],
                                                                                i,
-                                                                               lshaped.x)...)
+                                                                               decision(lshaped))...)
             end
             j += n
         end
@@ -169,7 +169,7 @@ end
         for w in workers()
             n = remotecall_fetch((sp)->length(fetch(sp).problems),w,scenarioproblems[w-1])
             for i in 1:n
-                lshaped.subproblems[j](lshaped.x)
+                lshaped.subproblems[j](decision(lshaped))
                 active_workers[j] = remotecall((sp,i,x,μ,λ,C) -> fill_submodel!(fetch(sp).problems[i],x,μ,λ,C),
                                                w,
                                                scenarioproblems[w-1],
@@ -187,7 +187,7 @@ end
             active_workers[w-1] = remotecall(fill_submodels!,
                                              w,
                                              lshaped.subworkers[w-1],
-                                             lshaped.x,
+                                             decision(lshaped),
                                              scenarioproblems[w-1])
         end
         map(wait,active_workers)
@@ -472,12 +472,12 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         # Add new cuts from subworkers
         t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
         if Q == Inf && !lshaped.parameters.checkfeas
-            @warn "Subproblem $cut.id is infeasible, aborting procedure."
+            @warn "Subproblem $(cut.id) is infeasible, aborting procedure."
             return :Infeasible
         end
         if !bounded(cut)
             map((w,aw)->!isready(aw) && put!(w,-1),lshaped.work,lshaped.active_workers)
-            @warn "Subproblem $cut.id is unbounded, aborting procedure."
+            @warn "Subproblem $(cut.id) is unbounded, aborting procedure."
             return :Unbounded
         end
         add_cut!(lshaped,cut,lshaped.subobjectives[t],Q)

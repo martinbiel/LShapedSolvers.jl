@@ -86,7 +86,7 @@ end
 function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.Model)
     # First stage
     nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
-    stochasticprogram.colVal = copy(lshaped.x)
+    stochasticprogram.colVal = copy(decision(lshaped))
     stochasticprogram.redCosts = try
         MPB.getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
     catch

@@ -31,6 +31,16 @@ end
     end
 end
 
+@define_traitfn UsesRegularization decision(lshaped::AbstractLShapedSolver) = begin
+    function decision(lshaped::AbstractLShapedSolver,!UsesRegularization)
+        return lshaped.x
+    end
+
+    function decision(lshaped::AbstractLShapedSolver,UsesRegularization)
+        return lshaped.ξ
+    end
+end
+
 @define_traitfn UsesRegularization solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver) = begin
     function solve_problem!(lshaped::AbstractLShapedSolver,solver::LQSolver,!UsesRegularization)
         solver(lshaped.mastervector)

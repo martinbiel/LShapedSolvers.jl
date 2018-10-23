@@ -19,7 +19,8 @@ TraitDispatch = "a073c066-aa1c-11e8-2535-2def105228db"
 
 [extras]
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+GLPKMathProgInterface = "3c7084bd-78ad-589a-b5bb-dbd673274bea"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Logging"]
+test = ["Test", "Logging", "GLPKMathProgInterface"]

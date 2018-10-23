@@ -225,7 +225,7 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},
     θ = lshaped.θs[cut.id]
     @unpack τ = lshaped.parameters
     # Update objective
-    subobjectives[cut.id] = cut(lshaped.x)
+    subobjectives[cut.id] = Q
     # Check if cut gives new information
     if θ > -Inf && abs(θ-Q) <= τ*(1+abs(Q))
         # Optimal with respect to this subproblem

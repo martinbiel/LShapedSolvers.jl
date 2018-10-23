@@ -1,10 +1,10 @@
 # LShapedSolvers
 
-[![Build Status](https://travis-ci.org/martinbiel/LShaped.jl.svg?branch=master)](https://travis-ci.org/martinbiel/LShaped.jl)
+[![Build Status](https://travis-ci.org/martinbiel/LShapedSolvers.jl.svg?branch=master)](https://travis-ci.org/martinbiel/LShapedSolvers.jl)
 
-[![Coverage Status](https://coveralls.io/repos/martinbiel/LShaped.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/martinbiel/LShaped.jl?branch=master)
+[![Coverage Status](https://coveralls.io/repos/martinbiel/LShapedSolvers.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/martinbiel/LShaped.jl?branch=master)
 
-[![codecov.io](http://codecov.io/github/martinbiel/LShaped.jl/coverage.svg?branch=master)](http://codecov.io/github/martinbiel/LShaped.jl?branch=master)
+[![codecov.io](http://codecov.io/github/martinbiel/LShapedSolvers.jl/coverage.svg?branch=master)](http://codecov.io/github/martinbiel/LShapedSolvers.jl?branch=master)
 
 `LShapedSolvers` is a collection of structured optimization algorithms for two-stage (L-shaped) stochastic recourse problems. All algorithm variants are based on the L-shaped method by Van Slyke and Wets. `LShapedSolvers` interfaces with [StochasticPrograms.jl][StochProg], and a given recourse model `sp` is solved effectively through
 

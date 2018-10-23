@@ -1,6 +1,6 @@
 using Test
 using Distributed
-include("/usr/share/julia/test/testenv.jl")
+include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
 addprocs_with_testenv(3)
 @test nworkers() == 3
 
@@ -13,19 +13,19 @@ end
 @everywhere using StochasticPrograms
 using LShapedSolvers
 using JuMP
-using Gurobi
+using GLPKMathProgInterface
 
 τ = 1e-5
-reference_solver = GurobiSolver(OutputFlag=0)
-dlsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
-             (LShapedSolver(:drd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-             (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-             (LShapedSolver(:dlv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
+reference_solver = GLPKSolverLP()
+dlsolvers = [(LShapedSolver(:dls,reference_solver,log=false),"L-Shaped"),
+             (LShapedSolver(:drd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
+             (LShapedSolver(:dtr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+             (LShapedSolver(:dlv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
-lsolvers = [(LShapedSolver(:ls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
-            (LShapedSolver(:rd,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-            (LShapedSolver(:tr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,GurobiSolver(OutputFlag=0),log=false,linearize=true),"Linearized Leveled L-Shaped")]
+lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
+            (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
 @info "Loading test problems..."
@@ -75,9 +75,7 @@ end
 
 @info "Loading infeasible..."
 include("infeasible.jl")
-lsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"),
-            (LShapedSolver(:dtr,GurobiSolver(OutputFlag=0),crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped")]
-@testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+@testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in dlsolvers
     solve(infeasible,solver=reference_solver)
     x̄ = optimal_decision(infeasible)
     Q̄ = optimal_value(infeasible)
@@ -88,7 +86,7 @@ lsolvers = [(LShapedSolver(:dls,GurobiSolver(OutputFlag=0),log=false),"L-Shaped"
     solve(infeasible,solver=lsolver)
     @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
-@testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+@testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in dlsolvers
     solve(infeasible,solver=reference_solver)
     x̄ = optimal_decision(infeasible)
     Q̄ = optimal_value(infeasible)

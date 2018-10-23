@@ -4,15 +4,13 @@ using Logging
 using Distributed
 using JuMP
 using StochasticPrograms
-using Gurobi
+using GLPKMathProgInterface
 
 τ = 1e-5
-reference_solver = GurobiSolver(OutputFlag=0)
+reference_solver = GLPKSolverLP()
 lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
             (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
             (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,reference_solver,log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
 
 problems = Vector{Tuple{JuMP.Model,String}}()
@@ -70,9 +68,10 @@ end
 
 @info "Starting distributed tests..."
 
-include("/usr/share/julia/test/testenv.jl")
+include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
+disttestfile = joinpath(@__DIR__, "run_dtests.jl")
 push!(test_exeflags.exec,"--color=yes")
-cmd = `$test_exename $test_exeflags run_dtests.jl`
+cmd = `$test_exename $test_exeflags $disttestfile`
 
 if !success(pipeline(cmd; stdout=stdout, stderr=stderr)) && ccall(:jl_running_on_valgrind,Cint,()) == 0
     error("Distributed test failed, cmd : $cmd")
