@@ -245,9 +245,6 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},
     # Add optimality cut
     process_cut!(lshaped,cut)
     MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-        updatemodel!(lshaped.mastersolver.lqmodel)
-    end
     push!(lshaped.cuts,cut)
     return true
 end
@@ -260,9 +257,6 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut}
     # Add feasibility cut
     process_cut!(lshaped,cut)
     MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
-    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-        updatemodel!(lshaped.mastersolver.lqmodel)
-    end
     push!(lshaped.cuts,cut)
     return true
 end

@@ -107,9 +107,6 @@ end
     if lshaped.parameters.linearize
         # t
         MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
-        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-            updatemodel!(lshaped.mastersolver.lqmodel)
-        end
     end
     # Add quadratic penalty
     c = copy(lshaped.c)
@@ -277,9 +274,6 @@ end
         # t
         MPB.addvar!(lshaped.projectionsolver.lqmodel,-Inf,Inf,1.0)
     end
-    if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
-        updatemodel!(lshaped.projectionsolver.lqmodel)
-    end
 end
 
 @implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver,HasLevels)
@@ -342,9 +336,6 @@ function _project!(lshaped::AbstractLShapedSolver)
         MPB.addconstr!(lshaped.projectionsolver.lqmodel,c.nzind,c.nzval,-Inf,L)
         lshaped.solverdata.levelindex = length(lshaped.structuredmodel.linconstr)+length(lshaped.cuts)+1
         if lshaped.parameters.linearize
-            if typeof(lshaped.projectionsolver.optimsolver) == GurobiSolver
-                updatemodel!(lshaped.projectionsolver.lqmodel)
-            end
             lshaped.solverdata.regularizerindex -= 1
         end
     end
