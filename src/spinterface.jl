@@ -39,11 +39,12 @@ struct LShapedSolver <: AbstractStructuredSolver
     variant::Symbol
     lpsolver::MPB.AbstractMathProgSolver
     subsolver::MPB.AbstractMathProgSolver
+    projectionsolver::MPB.AbstractMathProgSolver
     crash::Crash.CrashMethod
     parameters::Dict{Symbol,Any}
 
-    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, kwargs...)
-        return new(variant,lpsolver,subsolver,crash,Dict{Symbol,Any}(kwargs))
+    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, projectionsolver = lpsolver, kwargs...)
+        return new(variant,lpsolver,subsolver,projectionsolver,crash,Dict{Symbol,Any}(kwargs))
     end
 end
 LShapedSolver(lpsolver::MPB.AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
@@ -63,9 +64,9 @@ function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
     elseif solver.variant == :dtr
         return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
     elseif solver.variant == :lv
-        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver; solver.parameters...)
     elseif solver.variant == :dlv
-        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end

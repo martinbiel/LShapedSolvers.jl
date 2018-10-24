@@ -99,8 +99,8 @@ function feasibility_problem!(solver::LQSolver)
 end
 
 function loadLP(m::JuMP.Model)
-    l = m.colLower
-    u = m.colUpper
+    l = copy(m.colLower)
+    u = copy(m.colUpper)
 
     # Build objective
     # ==============================
