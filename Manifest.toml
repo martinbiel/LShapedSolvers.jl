@@ -102,9 +102,11 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 
 [[MathProgBase]]
 deps = ["Compat"]
-git-tree-sha1 = "3bf2e534e635df810e5f4b4f1a8b6de9004a0d53"
+git-tree-sha1 = "414d61faa7382afadc1195ee560ff8f8c48c0abb"
+repo-rev = "master"
+repo-url = "https://github.com/martinbiel/MathProgBase.jl"
 uuid = "fdba3010-5040-5b88-9595-932c9decdf73"
-version = "0.7.7"
+version = "0.7.7+"
 
 [[Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
@@ -186,9 +188,9 @@ version = "0.7.1"
 
 [[StaticArrays]]
 deps = ["InteractiveUtils", "LinearAlgebra", "Pkg", "Random", "Statistics", "Test"]
-git-tree-sha1 = "e4b174b7b0ad75ebfadb659dea43c56361b96ec8"
+git-tree-sha1 = "ebc5c2a27d91d5ec611a9861168182e2168effd3"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "0.9.1"
+version = "0.9.2"
 
 [[Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]

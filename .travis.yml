@@ -9,6 +9,10 @@ julia:
 notifications:
   email: false
 
+addons:
+  apt_packages:
+  - gfortran
+
 branches:
   except:
   - master
