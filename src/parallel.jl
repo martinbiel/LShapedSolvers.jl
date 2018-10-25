@@ -529,7 +529,9 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         lshaped.solverdata.θ = θ
         lshaped.θ_history[t] = θ
         # Project (if applicable)
-        project!(lshaped)
+        if !lshaped.parameters.checkfeas || lshaped.solverdata.Q < Inf
+            project!(lshaped)
+        end
         # If all work is finished at this timestamp, check optimality
         if lshaped.finished[t] == nbundles(lshaped)
             # Check if optimal

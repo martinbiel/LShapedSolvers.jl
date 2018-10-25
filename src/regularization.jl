@@ -113,7 +113,7 @@ end
     end
     # Add quadratic penalty
     c = copy(lshaped.c)
-    append!(c,fill(1.0,nbundles(lshaped)))
+    append!(c,MPB.getobj(lshaped.mastersolver.lqmodel)[end-nbundles(lshaped)+1:end])
     add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
 end
 
@@ -154,7 +154,7 @@ end
     lshaped.solverdata.σ = new_σ
     if need_update
         c = copy(lshaped.c)
-        append!(c,fill(1.0,nbundles(lshaped)))
+	append!(c,MPB.getobj(lshaped.mastersolver.lqmodel)[end-nbundles(lshaped)+1:end])
         add_penalty!(lshaped,lshaped.mastersolver.lqmodel,c,1/lshaped.solverdata.σ,lshaped.ξ)
     end
     nothing

@@ -40,8 +40,6 @@ end
 
 @info "Loading infeasible..."
 include("infeasible.jl")
-lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
-            (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped")]
 @testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
     solve(infeasible,solver=reference_solver)
     x̄ = optimal_decision(infeasible)
