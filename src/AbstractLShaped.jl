@@ -1,10 +1,10 @@
-abstract type AbstractLShapedSolver{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractStructuredModel end
+abstract type AbstractLShapedSolver{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractStructuredModel end
 
 nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
 # Initialization #
 # ======================================================================== #
-function init!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function init!(lshaped::AbstractLShapedSolver,subsolver::MPB.AbstractMathProgSolver)
     # Initialize progress meter
     lshaped.progress.thresh = lshaped.parameters.τ
     # Cap bundle size
@@ -56,14 +56,10 @@ function get_objective_value(lshaped::AbstractLShapedSolver)
     end
 end
 
-function prepare_master!(lshaped::AbstractLShapedSolver)
+function prepare_master!(lshaped::AbstractLShapedSolver{true})
     # θs
     for i = 1:nbundles(lshaped)
-        if lshaped.parameters.checkfeas
-            MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
-        else
-            MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
-        end
+        MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
         if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
             updatemodel!(lshaped.mastersolver.lqmodel)
         end
@@ -72,7 +68,19 @@ function prepare_master!(lshaped::AbstractLShapedSolver)
     end
 end
 
-function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function prepare_master!(lshaped::AbstractLShapedSolver{false})
+    # θs
+    for i = 1:nbundles(lshaped)
+        MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
+        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
+            updatemodel!(lshaped.mastersolver.lqmodel)
+        end
+        push!(lshaped.mastervector,-1e10)
+        push!(lshaped.θs,-1e10)
+    end
+end
+
+function resolve_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
     # Solve sub problems
@@ -81,11 +89,13 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
         cut::SparseHyperPlane{T} = subproblem()
         if lshaped.parameters.bundle == 1
             add_cut!(lshaped,cut)
+            update_objective!(lshaped,cut)
         else
             add_to_bundle!(lshaped,cut_bundle,cut)
             if length(cut_bundle) == lshaped.parameters.bundle
                 aggregated_cut = aggregate!(cut_bundle)
                 add_cut!(lshaped,aggregated_cut)
+                update_objective!(lshaped,aggregated_cut)
                 lshaped.subobjectives[aggregated_cut.id] = cut_bundle.q
                 cut_bundle.q = zero(T)
             end
@@ -95,16 +105,17 @@ function resolve_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T 
         # Add remaining bundle
         aggregated_cut = aggregate!(cut_bundle)
         add_cut!(lshaped,aggregated_cut)
+        update_objective!(lshaped,aggregated_cut)
         lshaped.subobjectives[aggregated_cut.id] = cut_bundle.q
     end
     # Return current objective value
     return current_objective_value(lshaped)
 end
 
-function iterate_nominal!(lshaped::AbstractLShapedSolver)
+function iterate_nominal!(lshaped::AbstractLShapedSolver{F}) where F
     # Resolve all subproblems at the current optimal solution
     Q = resolve_subproblems!(lshaped)
-    if Q == Inf && !lshaped.parameters.checkfeas
+    if Q == Inf && !F
         return :Infeasible
     end
     if Q == -Inf
@@ -140,9 +151,7 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver)
         return :Optimal
     end
     # Project (if applicable)
-    if !lshaped.parameters.checkfeas || lshaped.solverdata.Q < Inf
-        project!(lshaped)
-    end
+    project!(lshaped)
     # Check optimality if level sets are used
     if hastrait(lshaped,HasLevels)
         lshaped.solverdata.θ = calculate_estimate(lshaped)
@@ -233,14 +242,6 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},
         # Optimal with respect to this subproblem
         return false
     end
-    # Ensure that θi is included in minimization if feasibility cuts are used
-    if lshaped.parameters.checkfeas
-        c = MPB.getobj(lshaped.mastersolver.lqmodel)
-        if c[length(lshaped.x)+cut.id] == 0.0
-            c[length(lshaped.x)+cut.id] = 1.0
-            MPB.setobj!(lshaped.mastersolver.lqmodel,c)
-        end
-    end
     # Add optimality cut
     process_cut!(lshaped,cut)
     MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
@@ -287,6 +288,16 @@ end
 function add_to_bundle!(lshaped::AbstractLShapedSolver,bundle::CutBundle,cut::HyperPlane{OptimalityCut})
     push!(bundle.cuts,cut)
     bundle.q += cut(lshaped.x)
+end
+
+update_objective!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = nothing
+function update_objective!(lshaped::AbstractLShapedSolver{true},cut::HyperPlane{OptimalityCut})
+    # Ensure that θi is included in minimization if feasibility cuts are used
+    c = MPB.getobj(lshaped.mastersolver.lqmodel)
+    if c[length(lshaped.x)+cut.id] == 0.0
+        c[length(lshaped.x)+cut.id] = 1.0
+        MPB.setobj!(lshaped.mastersolver.lqmodel,c)
+    end
 end
 
 function show(io::IO, lshaped::AbstractLShapedSolver)

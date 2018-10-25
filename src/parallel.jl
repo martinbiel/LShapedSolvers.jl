@@ -3,8 +3,8 @@
 # ------------------------------------------------------------
 @define_trait IsParallel
 
-@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver,!IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S},subsolver::MPB.AbstractMathProgSolver) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
+    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S},subsolver::MPB.AbstractMathProgSolver,!IsParallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         # Prepare the subproblems
         m = lshaped.structuredmodel
         load_subproblems!(lshaped,scenarioproblems(m),subsolver)
@@ -12,7 +12,7 @@
         return lshaped
     end
 
-    function init_subproblems!(lshaped::AbstractLShapedSolver{T,A,M,S},subsolver::MPB.AbstractMathProgSolver,IsParallel) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S},subsolver::MPB.AbstractMathProgSolver,IsParallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
         # Partitioning
         (jobsize,extra) = divrem(nscenarios(lshaped),nworkers())
@@ -35,8 +35,8 @@
         active_workers = Vector{Future}(undef,nworkers())
 
         for w in workers()
-            lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{T,A,S}}}(1), w)
-            active_workers[w-1] = load_worker!(scenarioproblems(m),w,lshaped.subworkers[w-1],lshaped.x,start,stop,start_id,subsolver,lshaped.parameters.bundle,lshaped.parameters.checkfeas)
+            lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{F,T,A,S}}}(1), w)
+            active_workers[w-1] = load_worker!(scenarioproblems(m),w,lshaped.subworkers[w-1],lshaped.x,start,stop,start_id,subsolver,lshaped.parameters.bundle)
             if start > lshaped.nscenarios
                 continue
             end
@@ -228,14 +228,14 @@ function wait(channel::DecisionChannel, t)
     end
 end
 
-SubWorker{T,A,S} = RemoteChannel{Channel{Vector{SubProblem{T,A,S}}}}
+SubWorker{F,T,A,S} = RemoteChannel{Channel{Vector{SubProblem{F,T,A,S}}}}
 ScenarioProblems{D,SD,S} = RemoteChannel{Channel{StochasticPrograms.ScenarioProblems{D,SD,S}}}
 Work = RemoteChannel{Channel{Int}}
 Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
 CutQueue{T} = RemoteChannel{Channel{QCut{T}}}
 
-function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.ScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+function load_subproblems!(lshaped::AbstractLShapedSolver{F,T,A},scenarioproblems::StochasticPrograms.ScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {F, T <: Real, A <: AbstractVector}
     id = 1
     for i = 1:lshaped.nscenarios
         m = subproblem(scenarioproblems,i)
@@ -247,7 +247,7 @@ function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems:
                                              copy(lshaped.x),
                                              y₀,
                                              subsolver,
-                                             lshaped.parameters.checkfeas))
+                                             F))
         if i % lshaped.parameters.bundle == 0
             id += 1
         end
@@ -255,7 +255,7 @@ function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems:
     return lshaped
 end
 
-function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems::StochasticPrograms.DScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {T <: Real, A <: AbstractVector}
+function load_subproblems!(lshaped::AbstractLShapedSolver{F,T,A},scenarioproblems::StochasticPrograms.DScenarioProblems,subsolver::MPB.AbstractMathProgSolver) where {F, T <: Real, A <: AbstractVector}
     id = 1
     for i = 1:lshaped.nscenarios
         m = subproblem(scenarioproblems,i)
@@ -267,7 +267,7 @@ function load_subproblems!(lshaped::AbstractLShapedSolver{T,A},scenarioproblems:
                                              y₀,
                                              masterterms(scenarioproblems,i),
                                              subsolver,
-                                             lshaped.parameters.checkfeas))
+                                             F))
         if i % lshaped.parameters.bundle == 0
             id += 1
         end
@@ -283,8 +283,7 @@ function load_worker!(sp::StochasticPrograms.ScenarioProblems,
                       stop::Integer,
                       start_id::Integer,
                       subsolver::MPB.AbstractMathProgSolver,
-                      bundlesize::Integer,
-                      checkfeas::Bool)
+                      bundlesize::Integer)
     problems = [sp.problems[i] for i = start:stop]
     πs = [probability(sp.scenariodata[i]) for i = start:stop]
     return remotecall(init_subworker!,
@@ -296,7 +295,6 @@ function load_worker!(sp::StochasticPrograms.ScenarioProblems,
                       x,
                       subsolver,
                       bundlesize,
-                      checkfeas,
                       start_id)
 end
 
@@ -308,8 +306,7 @@ function load_worker!(sp::StochasticPrograms.DScenarioProblems,
                       stop::Integer,
                       start_id::Integer,
                       subsolver::MPB.AbstractMathProgSolver,
-                      bundlesize::Integer,
-                      checkfeas::Bool)
+                      bundlesize::Integer)
     return remotecall(init_subworker!,
                       w,
                       worker,
@@ -317,24 +314,22 @@ function load_worker!(sp::StochasticPrograms.DScenarioProblems,
                       x,
                       subsolver,
                       bundlesize,
-                      checkfeas,
                       start_id)
 end
 
-function init_subworker!(subworker::SubWorker{T,A,S},
+function init_subworker!(subworker::SubWorker{F,T,A,S},
                          parent::JuMP.Model,
                          submodels::Vector{JuMP.Model},
                          πs::A,
                          x::A,
                          subsolver::MPB.AbstractMathProgSolver,
                          bundlesize::Integer,
-                         checkfeas::Bool,
-                         start_id::Integer) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems = Vector{SubProblem{T,A,S}}(undef,length(submodels))
+                         start_id::Integer) where {F, T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems = Vector{SubProblem{F,T,A,S}}(undef,length(submodels))
     id = start_id
     for (i,submodel) = enumerate(submodels)
         y₀ = convert(A,rand(submodel.numCols))
-        subproblems[i] = SubProblem(submodel,parent,id,πs[i],x,y₀,subsolver,checkfeas)
+        subproblems[i] = SubProblem(submodel,parent,id,πs[i],x,y₀,subsolver,F)
         if i % bundlesize == 0
             id += 1
         end
@@ -342,19 +337,18 @@ function init_subworker!(subworker::SubWorker{T,A,S},
     put!(subworker,subproblems)
 end
 
-function init_subworker!(subworker::SubWorker{T,A,S},
+function init_subworker!(subworker::SubWorker{F,T,A,S},
                          scenarioproblems::ScenarioProblems,
                          x::A,
                          subsolver::MPB.AbstractMathProgSolver,
                          bundlesize::Integer,
-                         checkfeas::Bool,
-                         start_id::Integer) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+                         start_id::Integer) where {F, T <: Real, A <: AbstractArray, S <: LQSolver}
     sp = fetch(scenarioproblems)
-    subproblems = Vector{SubProblem{T,A,S}}(undef,StochasticPrograms.nsubproblems(sp))
+    subproblems = Vector{SubProblem{F,T,A,S}}(undef,StochasticPrograms.nsubproblems(sp))
     id = start_id
     for (i,submodel) = enumerate(sp.problems)
         y₀ = convert(A,rand(sp.problems[i].numCols))
-        subproblems[i] = SubProblem(submodel,sp.parent,id,probability(sp.scenariodata[i]),x,y₀,subsolver,checkfeas)
+        subproblems[i] = SubProblem(submodel,sp.parent,id,probability(sp.scenariodata[i]),x,y₀,subsolver,F)
         if i % bundlesize == 0
             id += 1
         end
@@ -362,12 +356,12 @@ function init_subworker!(subworker::SubWorker{T,A,S},
     put!(subworker,subproblems)
 end
 
-function work_on_subproblems!(subworker::SubWorker{T,A,S},
+function work_on_subproblems!(subworker::SubWorker{F,T,A,S},
                               work::Work,
                               cuts::CutQueue{T},
                               decisions::Decisions{A},
-                              bundlesize::Int) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+                              bundlesize::Int) where {F, T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems::Vector{SubProblem{F,T,A,S}} = fetch(subworker)
     if isempty(subproblems)
        # Workers has nothing do to, return.
        return
@@ -433,9 +427,9 @@ function _add_to_bundle!(bundle::CutBundle,cut::HyperPlane{OptimalityCut},x::Abs
     bundle.q += cut(x)
 end
 
-function calculate_subobjective(subworker::SubWorker{T,A,S},
-                                x::A) where {T <: Real, A <: AbstractArray, S <: LQSolver}
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+function calculate_subobjective(subworker::SubWorker{F,T,A,S},
+                                x::A) where {F, T <: Real, A <: AbstractArray, S <: LQSolver}
+    subproblems::Vector{SubProblem{F,T,A,S}} = fetch(subworker)
     if length(subproblems) > 0
         return sum([subproblem.π*subproblem(x) for subproblem in subproblems])
     else
@@ -443,11 +437,11 @@ function calculate_subobjective(subworker::SubWorker{T,A,S},
     end
 end
 
-function fill_submodels!(subworker::SubWorker{T,A,S},
+function fill_submodels!(subworker::SubWorker{F,T,A,S},
                          x::A,
-                         scenarioproblems::ScenarioProblems) where {T <: Real, A <: AbstractArray, S <: LQSolver}
+                         scenarioproblems::ScenarioProblems) where {F, T <: Real, A <: AbstractArray, S <: LQSolver}
     sp = fetch(scenarioproblems)
-    subproblems::Vector{SubProblem{T,A,S}} = fetch(subworker)
+    subproblems::Vector{SubProblem{F,T,A,S}} = fetch(subworker)
     for (i,submodel) in enumerate(sp.problems)
         subproblems[i](x)
         fill_submodel!(submodel,subproblems[i])
@@ -466,12 +460,12 @@ function fill_submodel!(submodel::JuMP.Model,subproblem::SubProblem)
     fill_submodel!(submodel,get_solution(subproblem)...)
 end
 
-function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function iterate_parallel!(lshaped::AbstractLShapedSolver{F,T,A,M,S}) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
     wait(lshaped.cutqueue)
     while isready(lshaped.cutqueue)
         # Add new cuts from subworkers
         t::Int,Q::T,cut::SparseHyperPlane{T} = take!(lshaped.cutqueue)
-        if Q == Inf && !lshaped.parameters.checkfeas
+        if Q == Inf && !F
             @warn "Subproblem $(cut.id) is infeasible, aborting procedure."
             return :Infeasible
         end
@@ -481,6 +475,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
             return :Unbounded
         end
         add_cut!(lshaped,cut,lshaped.subobjectives[t],Q)
+        update_objective!(lshaped,cut)
         lshaped.finished[t] += 1
         if lshaped.finished[t] == nbundles(lshaped)
             lshaped.solverdata.timestamp = t
@@ -529,9 +524,7 @@ function iterate_parallel!(lshaped::AbstractLShapedSolver{T,A,M,S}) where {T <: 
         lshaped.solverdata.θ = θ
         lshaped.θ_history[t] = θ
         # Project (if applicable)
-        if !lshaped.parameters.checkfeas || lshaped.solverdata.Q < Inf
-            project!(lshaped)
-        end
+        project!(lshaped)
         # If all work is finished at this timestamp, check optimality
         if lshaped.finished[t] == nbundles(lshaped)
             # Check if optimal

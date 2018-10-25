@@ -8,7 +8,6 @@ end
     τ::T = 1e-6
     bundle::Int = 1
     log::Bool = true
-    checkfeas::Bool = false
 end
 
 """
@@ -23,7 +22,7 @@ Functor object for the L-shaped algorithm. Create by supplying `:ls` to the `LSh
 - `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
 ...
 """
-struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct LShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::LShapedData{T}
 
@@ -36,7 +35,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
 
     # Subproblems
     nscenarios::Int
-    subproblems::Vector{SubProblem{T,A,S}}
+    subproblems::Vector{SubProblem{F,T,A,S}}
     subobjectives::A
 
     # Cuts
@@ -48,7 +47,7 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
     parameters::LShapedParameters{T}
     progress::ProgressThresh{T}
 
-    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() > 1
             @warn "There are worker processes, consider using distributed version of algorithm"
         end
@@ -67,27 +66,27 @@ struct LShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: 
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,S}(model,
-                               LShapedData{T}(),
-                               msolver,
-                               mastervector,
-                               c_,
-                               x₀_,
-                               A(),
-                               n,
-                               Vector{SubProblem{T,A,S}}(),
-                               A(),
-                               A(),
-                               Vector{SparseHyperPlane{T}}(),
-                               A(),
-                               LShapedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "L-Shaped Gap "))
+        lshaped = new{F,T,A,M,S}(model,
+                                 LShapedData{T}(),
+                                 msolver,
+                                 mastervector,
+                                 c_,
+                                 x₀_,
+                                 A(),
+                                 n,
+                                 Vector{SubProblem{F,T,A,S}}(),
+                                 A(),
+                                 A(),
+                                 Vector{SparseHyperPlane{T}}(),
+                                 A(),
+                                 LShapedParameters{T}(;kw...),
+                                 ProgressThresh(1.0, "L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-LShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
+LShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
 
 function (lshaped::LShaped)()
     # Reset timer

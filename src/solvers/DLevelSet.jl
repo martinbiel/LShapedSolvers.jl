@@ -14,7 +14,6 @@ end
     λ::T = 0.5
     bundle::Int = 1
     log::Bool = true
-    checkfeas::Bool = false
     linearize::Bool = false
 end
 
@@ -33,7 +32,7 @@ Functor object for the distributed level-set L-shaped algorithm. Create by suppl
 - `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
 ...
 """
-struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, P <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct DLevelSet{F, T <: Real, A <: AbstractVector, M <: LQSolver, P <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::DLevelSetData{T}
 
@@ -51,7 +50,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, P <: LQSolver, S
     finished::Vector{Int}
 
     # Workers
-    subworkers::Vector{SubWorker{T,A,S}}
+    subworkers::Vector{SubWorker{F,T,A,S}}
     work::Vector{Work}
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
@@ -74,7 +73,7 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, P <: LQSolver, S
     @implement_trait DLevelSet HasLevels
     @implement_trait DLevelSet IsParallel
 
-    function (::Type{DLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,projectionsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{DLevelSet})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,projectionsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
             return LevelSet(model,ξ₀,mastersolver,subsolver; kw...)
@@ -97,36 +96,36 @@ struct DLevelSet{T <: Real, A <: AbstractVector, M <: LQSolver, P <: LQSolver, S
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,P,S}(model,
-                                 DLevelSetData{T}(),
-                                 msolver,
-                                 psolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 A(),
-                                 n,
-                                 Vector{A}(),
-                                 Vector{Int}(),
-                                 Vector{SubWorker{T,A,S}}(undef,nworkers()),
-                                 Vector{Work}(undef,nworkers()),
-                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                                 Vector{Future}(undef,nworkers()),
-                                 ξ₀_,
-                                 A(),
-                                 A(),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 DLevelSetParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "Distributed Leveled L-Shaped Gap "))
+        lshaped = new{F,T,A,M,P,S}(model,
+                                   DLevelSetData{T}(),
+                                   msolver,
+                                   psolver,
+                                   mastervector,
+                                   c_,
+                                   x₀_,
+                                   A(),
+                                   n,
+                                   Vector{A}(),
+                                   Vector{Int}(),
+                                   Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                   Vector{Work}(undef,nworkers()),
+                                   RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                   RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                   Vector{Future}(undef,nworkers()),
+                                   ξ₀_,
+                                   A(),
+                                   A(),
+                                   A(),
+                                   Vector{SparseHyperPlane{T}}(),
+                                   A(),
+                                   DLevelSetParameters{T}(;kw...),
+                                   ProgressThresh(1.0, "Distributed Leveled L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-DLevelSet(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,projectionsolver::MPB.AbstractMathProgSolver; kw...) = DLevelSet(model,rand(model.numCols),mastersolver,subsolver,projectionsolver; kw...)
+DLevelSet(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,projectionsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DLevelSet(model,rand(model.numCols),mastersolver,subsolver,projectionsolver,checkfeas; kw...)
 
 function (lshaped::DLevelSet)()
     # Reset timer

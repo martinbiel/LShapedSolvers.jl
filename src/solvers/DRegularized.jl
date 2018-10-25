@@ -19,7 +19,6 @@ end
     σ̲::T = 0.5
     bundle::Int = 1
     log::Bool = true
-    checkfeas::Bool = false
     autotune::Bool = false
     linearize::Bool = false
 end
@@ -42,7 +41,7 @@ Functor object for the distributed regularized L-shaped algorithm. Create by sup
 - `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
 ...
 """
-struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct DRegularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::DRegularizedData{T}
 
@@ -59,7 +58,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     finished::Vector{Int}
 
     # Workers
-    subworkers::Vector{SubWorker{T,A,S}}
+    subworkers::Vector{SubWorker{F,T,A,S}}
     work::Vector{Work}
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
@@ -82,7 +81,7 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
     @implement_trait DRegularized IsRegularized
     @implement_trait DRegularized IsParallel
 
-    function (::Type{DRegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{DRegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
             return Regularized(model,ξ₀,mastersolver,subsolver; kw...)
@@ -103,35 +102,35 @@ struct DRegularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,S}(model,
-                               DRegularizedData{T}(),
-                               msolver,
-                               mastervector,
-                               c_,
-                               x₀_,
-                               A(),
-                               n,
-                               Vector{A}(),
-                               Vector{Int}(),
-                               Vector{SubWorker{T,A,S}}(undef,nworkers()),
-                               Vector{Work}(undef,nworkers()),
-                               RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                               RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               Vector{Future}(undef,nworkers()),
-                               ξ₀_,
-                               A(),
-                               A(),
-                               A(),
-                               Vector{SparseHyperPlane{T}}(),
-                               A(),
-                               DRegularizedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
+        lshaped = new{F,T,A,M,S}(model,
+                                 DRegularizedData{T}(),
+                                 msolver,
+                                 mastervector,
+                                 c_,
+                                 x₀_,
+                                 A(),
+                                 n,
+                                 Vector{A}(),
+                                 Vector{Int}(),
+                                 Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                 Vector{Work}(undef,nworkers()),
+                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                 Vector{Future}(undef,nworkers()),
+                                 ξ₀_,
+                                 A(),
+                                 A(),
+                                 A(),
+                                 Vector{SparseHyperPlane{T}}(),
+                                 A(),
+                                 DRegularizedParameters{T}(;kw...),
+                                 ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-DRegularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = DRegularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DRegularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DRegularized(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
 
 function (lshaped::DRegularized)()
     # Reset timer

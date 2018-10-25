@@ -17,8 +17,10 @@ The available algorithm variants are as follows
 # Arguments
 - `variant::Symbol = :ls`: L-shaped algorithm variant.
 - `lpsolver::AbstractMathProgSolver`: MathProgBase solver capable of solving linear (and possibly quadratic) programs.
-- `crash::Crash.CrashMethod = Crash.None`: Crash method used to generate an initial decision. See ?Crash for alternatives.
 - `subsolver::AbstractMathProgSolver = lpsolver`: Optionally specify a different solver for the subproblems.
+- `projectionsolver::AbstractMathProgSolver = lpsolver`: Optionally specify a different solver for solving projection problems (only applies in level-set variants).
+- `checkfeas::Bool = false`: Specify if feasibility cuts should be used or not. (Should be false if problem is known to have (relatively) complete recourse for best performance.)
+- `crash::Crash.CrashMethod = Crash.None`: Crash method used to generate an initial decision. See ?Crash for alternatives.
 - <keyword arguments>: Algorithm specific parameters, consult individual docstrings (see above list) for list of possible arguments and default values.
 ...
 
@@ -35,16 +37,17 @@ L-Shaped Gap  Time: 0:00:01 (6 iterations)
 :Optimal
 ```
 """
-struct LShapedSolver <: AbstractStructuredSolver
+mutable struct LShapedSolver <: AbstractStructuredSolver
     variant::Symbol
     lpsolver::MPB.AbstractMathProgSolver
     subsolver::MPB.AbstractMathProgSolver
     projectionsolver::MPB.AbstractMathProgSolver
+    checkfeas::Bool
     crash::Crash.CrashMethod
     parameters::Dict{Symbol,Any}
 
-    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver = lpsolver, projectionsolver = lpsolver, kwargs...)
-        return new(variant,lpsolver,subsolver,projectionsolver,crash,Dict{Symbol,Any}(kwargs))
+    function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver::MPB.AbstractMathProgSolver = lpsolver, projectionsolver::MPB.AbstractMathProgSolver = lpsolver, checkfeas::Bool = false, kwargs...)
+        return new(variant,lpsolver,subsolver,projectionsolver,checkfeas,crash,Dict{Symbol,Any}(kwargs))
     end
 end
 LShapedSolver(lpsolver::MPB.AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
@@ -52,21 +55,21 @@ LShapedSolver(lpsolver::MPB.AbstractMathProgSolver; kwargs...) = LShapedSolver(:
 function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
     x₀ = solver.crash(stochasticprogram,solver.lpsolver)
     if solver.variant == :ls
-        return LShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return LShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dls
-        return DLShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return DLShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :rd
-        return Regularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return Regularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :drd
-        return DRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return DRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :tr
-        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dtr
-        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver; solver.parameters...)
+        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :lv
-        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver; solver.parameters...)
+        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver,solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dlv
-        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver; solver.parameters...)
+        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver,solver.checkfeas; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end
@@ -74,6 +77,12 @@ end
 
 function add_params!(solver::LShapedSolver; kwargs...)
     push!(solver.parameters,kwargs...)
+    for (k,v) in kwargs
+        if k ∈ [:variant, :lpsolver, :subsolver, :projectionsolver, :checkfeas, :crash]
+            setfield!(solver,k,v)
+            delete!(solver.parameters, k)
+        end
+    end
 end
 
 function optimsolver(solver::LShapedSolver)

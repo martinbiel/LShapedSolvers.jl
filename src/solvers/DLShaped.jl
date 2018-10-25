@@ -10,7 +10,6 @@ end
     τ::T = 1e-6
     bundle::Int = 1
     log::Bool = true
-    checkfeas::Bool = false
 end
 
 """
@@ -26,7 +25,7 @@ Functor object for the distributed L-shaped algorithm. Create by supplying `:dls
 - `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
 ...
 """
-struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct DLShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::DLShapedData{T}
 
@@ -43,7 +42,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
     finished::Vector{Int}
 
     # Workers
-    subworkers::Vector{SubWorker{T,A,S}}
+    subworkers::Vector{SubWorker{F,T,A,S}}
     work::Vector{Work}
     decisions::Decisions{A}
     cutqueue::CutQueue{T}
@@ -60,7 +59,7 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
 
     @implement_trait DLShaped IsParallel
 
-    function (::Type{DLShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{DLShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
             return LShaped(model,x₀,mastersolver,subsolver; kw...)
@@ -80,32 +79,32 @@ struct DLShaped{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <:
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,S}(model,
-                               DLShapedData{T}(),
-                               msolver,
-                               mastervector,
-                               c_,
-                               x₀_,
-                               A(),
-                               n,
-                               Vector{A}(),
-                               Vector{Int}(),
-                               Vector{SubWorker{T,A,S}}(undef,nworkers()),
-                               Vector{Work}(undef,nworkers()),
-                               RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                               RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                               Vector{Future}(undef,nworkers()),
-                               A(),
-                               Vector{SparseHyperPlane{T}}(),
-                               A(),
-                               DLShapedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "Distributed L-Shaped Gap "))
+        lshaped = new{F,T,A,M,S}(model,
+                                 DLShapedData{T}(),
+                                 msolver,
+                                 mastervector,
+                                 c_,
+                                 x₀_,
+                                 A(),
+                                 n,
+                                 Vector{A}(),
+                                 Vector{Int}(),
+                                 Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                 Vector{Work}(undef,nworkers()),
+                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                 Vector{Future}(undef,nworkers()),
+                                 A(),
+                                 Vector{SparseHyperPlane{T}}(),
+                                 A(),
+                                 DLShapedParameters{T}(;kw...),
+                                 ProgressThresh(1.0, "Distributed L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-DLShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = DLShaped(model,rand(model.numCols),mastersolver,subsolver; kw...)
+DLShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DLShaped(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
 
 function (lshaped::DLShaped)()
     # Reset timer

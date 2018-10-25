@@ -315,7 +315,7 @@ end
     # TODO: Rewrite with MathOptInterface
 end
 
-@implement_traitfn function project!(lshaped::AbstractLShapedSolver,HasLevels)
+@implement_traitfn function project!(lshaped::AbstractLShapedSolver{true},HasLevels)
     @unpack θ,Q̃ = lshaped.solverdata
     @unpack λ = lshaped.parameters
     # Update level (TODO: Rewrite with MathOptInterface)

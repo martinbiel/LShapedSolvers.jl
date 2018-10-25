@@ -36,7 +36,7 @@ Functor object for the trust-region L-shaped algorithm. Create by supplying `:tr
 - `autotune::Bool = false`: If `true`, heuristic methods are used to set `Δ̅` and `Δ̅` based on the initial decision.
 ...
 """
-struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct TrustRegion{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::TrustRegionData{T}
 
@@ -48,7 +48,7 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     # Subproblems
     nscenarios::Int
-    subproblems::Vector{SubProblem{T,A,S}}
+    subproblems::Vector{SubProblem{F,T,A,S}}
     subobjectives::A
 
     # Trust region
@@ -68,7 +68,7 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     @implement_trait TrustRegion HasTrustRegion
 
-    function (::Type{TrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{TrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() > 1
             @warn "There are worker processes, consider using distributed version of algorithm"
         end
@@ -88,30 +88,30 @@ struct TrustRegion{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,S}(model,
-                               TrustRegionData{T}(),
-                               msolver,
-                               mastervector,
-                               c_,
-                               x₀_,
-                               n,
-                               Vector{SubProblem{T,A,S}}(),
-                               A(),
-                               ξ₀_,
-                               A(),
-                               A(),
-                               A(),
-                               A(),
-                               Vector{SparseHyperPlane{T}}(),
-                               A(),
-                               TrustRegionParameters{T}(;kw...),
-                               ProgressThresh(1.0, "TR L-Shaped Gap "))
+        lshaped = new{F,T,A,M,S}(model,
+                                 TrustRegionData{T}(),
+                                 msolver,
+                                 mastervector,
+                                 c_,
+                                 x₀_,
+                                 n,
+                                 Vector{SubProblem{F,T,A,S}}(),
+                                 A(),
+                                 ξ₀_,
+                                 A(),
+                                 A(),
+                                 A(),
+                                 A(),
+                                 Vector{SparseHyperPlane{T}}(),
+                                 A(),
+                                 TrustRegionParameters{T}(;kw...),
+                                 ProgressThresh(1.0, "TR L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-TrustRegion(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = TrustRegion(model,rand(model.numCols),mastersolver,subsolver;kw...)
+TrustRegion(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = TrustRegion(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
 
 function (lshaped::TrustRegion)()
     # Reset timer

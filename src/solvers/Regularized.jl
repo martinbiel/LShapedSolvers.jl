@@ -17,7 +17,6 @@ end
     σ̲::T = 0.5
     bundle::Int = 1
     log::Bool = true
-    checkfeas::Bool = false
     autotune::Bool = false
     linearize::Bool = false
 end
@@ -39,7 +38,7 @@ Functor object for the regularized decomposition L-shaped algorithm. Create by s
 - `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
 ...
 """
-struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{T,A,M,S}
+struct Regularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
     structuredmodel::JuMP.Model
     solverdata::RegularizedData{T}
 
@@ -51,7 +50,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     # Subproblems
     nscenarios::Int
-    subproblems::Vector{SubProblem{T,A,S}}
+    subproblems::Vector{SubProblem{F,T,A,S}}
     subobjectives::A
 
     # Regularizer
@@ -71,7 +70,7 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     @implement_trait Regularized IsRegularized
 
-    function (::Type{Regularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...)
+    function (::Type{Regularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
         if nworkers() > 1
             @warn "There are worker processes, consider using distributed version of algorithm"
         end
@@ -91,30 +90,30 @@ struct Regularized{T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
         n = StochasticPrograms.nscenarios(model)
 
-        lshaped = new{T,A,M,S}(model,
-                               RegularizedData{T}(),
-                               msolver,
-                               mastervector,
-                               c_,
-                               x₀_,
-                               n,
-                               Vector{SubProblem{T,A,S}}(),
-                               A(),
-                               ξ₀_,
-                               A(),
-                               A(),
-                               A(),
-                               A(),
-                               Vector{SparseHyperPlane{T}}(),
-                               A(),
-                               RegularizedParameters{T}(;kw...),
-                               ProgressThresh(1.0, "RD L-Shaped Gap "))
+        lshaped = new{F,T,A,M,S}(model,
+                                 RegularizedData{T}(),
+                                 msolver,
+                                 mastervector,
+                                 c_,
+                                 x₀_,
+                                 n,
+                                 Vector{SubProblem{F,T,A,S}}(),
+                                 A(),
+                                 ξ₀_,
+                                 A(),
+                                 A(),
+                                 A(),
+                                 A(),
+                                 Vector{SparseHyperPlane{T}}(),
+                                 A(),
+                                 RegularizedParameters{T}(;kw...),
+                                 ProgressThresh(1.0, "RD L-Shaped Gap "))
         # Initialize solver
         init!(lshaped,subsolver)
         return lshaped
     end
 end
-Regularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver; kw...) = Regularized(model,rand(model.numCols),mastersolver,subsolver; kw...)
+Regularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = Regularized(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
 
 function (lshaped::Regularized)()
     # Reset timer
