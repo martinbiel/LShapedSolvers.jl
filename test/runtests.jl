@@ -19,49 +19,53 @@ problems = Vector{Tuple{JuMP.Model,String}}()
 include("simple.jl")
 @info "Loading farmer..."
 include("farmer.jl")
-
-@info "Test problems loaded. Starting test sequence."
-@testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
-    solve(sp,solver=reference_solver)
-    x̄ = optimal_decision(sp)
-    Q̄ = optimal_value(sp)
-    solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
-end
-
-@testset "Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
-    solve(sp,solver=reference_solver)
-    x̄ = optimal_decision(sp)
-    Q̄ = optimal_value(sp)
-    add_params!(lsolver,bundle=2)
-    solve(sp,solver=lsolver)
-    @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
-end
-
 @info "Loading infeasible..."
 include("infeasible.jl")
-@testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-    solve(infeasible,solver=reference_solver)
-    x̄ = optimal_decision(infeasible)
-    Q̄ = optimal_value(infeasible)
-    with_logger(NullLogger()) do
-        @test solve(infeasible,solver=lsolver) == :Infeasible
+@info "Test problems loaded. Starting test sequence."
+
+@testset "Sequential solvers" begin
+    @testset "Simple problems" begin
+        @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
+            solve(sp,solver=reference_solver)
+            x̄ = optimal_decision(sp)
+            Q̄ = optimal_value(sp)
+            solve(sp,solver=lsolver)
+            @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+        end
+        @testset "Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
+            solve(sp,solver=reference_solver)
+            x̄ = optimal_decision(sp)
+            Q̄ = optimal_value(sp)
+            add_params!(lsolver,bundle=2)
+            solve(sp,solver=lsolver)
+            @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+        end
     end
-    add_params!(lsolver,checkfeas=true)
-    solve(infeasible,solver=lsolver)
-    @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
-end
-@testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-    solve(infeasible,solver=reference_solver)
-    x̄ = optimal_decision(infeasible)
-    Q̄ = optimal_value(infeasible)
-    add_params!(lsolver,checkfeas=false,bundle=2)
-    with_logger(NullLogger()) do
-        @test solve(infeasible,solver=lsolver) == :Infeasible
+    @testset "Infeasible problem" begin
+        @testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+            solve(infeasible,solver=reference_solver)
+            x̄ = optimal_decision(infeasible)
+            Q̄ = optimal_value(infeasible)
+            with_logger(NullLogger()) do
+                @test solve(infeasible,solver=lsolver) == :Infeasible
+            end
+            add_params!(lsolver,checkfeas=true)
+            solve(infeasible,solver=lsolver)
+            @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
+        end
+        @testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
+            solve(infeasible,solver=reference_solver)
+            x̄ = optimal_decision(infeasible)
+            Q̄ = optimal_value(infeasible)
+            add_params!(lsolver,checkfeas=false,bundle=2)
+            with_logger(NullLogger()) do
+                @test solve(infeasible,solver=lsolver) == :Infeasible
+            end
+            add_params!(lsolver,checkfeas=true,bundle=2)
+            solve(infeasible,solver=lsolver)
+            @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
+        end
     end
-    add_params!(lsolver,checkfeas=true,bundle=2)
-    solve(infeasible,solver=lsolver)
-    @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
 end
 
 @info "Starting distributed tests..."
