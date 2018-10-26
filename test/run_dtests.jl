@@ -14,17 +14,22 @@ end
 using LShapedSolvers
 using JuMP
 using GLPKMathProgInterface
+using Ipopt
 
 τ = 1e-5
 reference_solver = GLPKSolverLP()
+qp_solver = IpoptSolver(print_level=0)
 dlsolvers = [(LShapedSolver(:dls,reference_solver,log=false),"L-Shaped"),
+             (LShapedSolver(:drd,qp_solver,subsolver=reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
              (LShapedSolver(:drd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
              (LShapedSolver(:dtr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+             (LShapedSolver(:dlv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
              (LShapedSolver(:dlv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
-
 lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:rd,qp_solver,subsolver=reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
             (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
             (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
 problems = Vector{Tuple{JuMP.Model,String}}()
 @info "Loading test problems..."

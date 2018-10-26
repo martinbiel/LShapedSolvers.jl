@@ -5,14 +5,17 @@ using Distributed
 using JuMP
 using StochasticPrograms
 using GLPKMathProgInterface
+using Ipopt
 
 τ = 1e-5
 reference_solver = GLPKSolverLP()
+qp_solver = IpoptSolver(print_level=0)
 lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(:rd,qp_solver,subsolver=reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
             (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
             (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
+            (LShapedSolver(:lv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
-
 problems = Vector{Tuple{JuMP.Model,String}}()
 @info "Loading test problems..."
 @info "Loading simple..."
