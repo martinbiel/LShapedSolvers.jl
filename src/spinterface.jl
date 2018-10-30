@@ -29,11 +29,11 @@ The available algorithm variants are as follows
 The following solves a stochastic program `sp` created in `StochasticPrograms.jl` using the L-shaped algorithm with Clp as an `lpsolver`.
 
 ```jldoctest
-julia> solve(sp,solver=LShapedSolver(:ls,ClpSolver()))
-L-Shaped Gap  Time: 0:00:01 (6 iterations)
-  Objective:       -855.8333333333358
-  Gap:             4.250802890466926e-15
-  Number of cuts:  8
+julia> solve(sp,solver=LShapedSolver(:ls,GLPKSolverLP()))
+L-Shaped Gap  Time: 0:00:01 (4 iterations)
+  Objective:       -855.8333333333339
+  Gap:             0.0
+  Number of cuts:  7
 :Optimal
 ```
 """
@@ -47,29 +47,29 @@ mutable struct LShapedSolver <: AbstractStructuredSolver
     parameters::Dict{Symbol,Any}
 
     function (::Type{LShapedSolver})(variant::Symbol, lpsolver::MPB.AbstractMathProgSolver; crash::Crash.CrashMethod = Crash.None(), subsolver::MPB.AbstractMathProgSolver = lpsolver, projectionsolver::MPB.AbstractMathProgSolver = lpsolver, checkfeas::Bool = false, kwargs...)
-        return new(variant,lpsolver,subsolver,projectionsolver,checkfeas,crash,Dict{Symbol,Any}(kwargs))
+        return new(variant, lpsolver, subsolver, projectionsolver, checkfeas, crash, Dict{Symbol,Any}(kwargs))
     end
 end
 LShapedSolver(lpsolver::MPB.AbstractMathProgSolver; kwargs...) = LShapedSolver(:ls, lpsolver, kwargs...)
 
-function StructuredModel(solver::LShapedSolver,stochasticprogram::JuMP.Model)
-    x₀ = solver.crash(stochasticprogram,solver.lpsolver)
+function StructuredModel(stochasticprogram::StochasticProgram, solver::LShapedSolver)
+    x₀ = solver.crash(stochasticprogram, solver.lpsolver)
     if solver.variant == :ls
-        return LShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return LShaped(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dls
-        return DLShaped(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return DLShaped(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :rd
-        return Regularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return Regularized(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :drd
-        return DRegularized(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return DRegularized(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :tr
-        return TrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return TrustRegion(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dtr
-        return DTrustRegion(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.checkfeas; solver.parameters...)
+        return DTrustRegion(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :lv
-        return LevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver,solver.checkfeas; solver.parameters...)
+        return LevelSet(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.projectionsolver, solver.checkfeas; solver.parameters...)
     elseif solver.variant == :dlv
-        return DLevelSet(stochasticprogram,x₀,solver.lpsolver,solver.subsolver,solver.projectionsolver,solver.checkfeas; solver.parameters...)
+        return DLevelSet(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.projectionsolver, solver.checkfeas; solver.parameters...)
     else
         error("Unknown L-Shaped variant: ", solver.variant)
     end
@@ -85,7 +85,7 @@ function add_params!(solver::LShapedSolver; kwargs...)
     end
 end
 
-function optimsolver(solver::LShapedSolver)
+function internal_solver(solver::LShapedSolver)
     return solver.lpsolver
 end
 
@@ -93,22 +93,45 @@ function optimize_structured!(lshaped::AbstractLShapedSolver)
     return lshaped()
 end
 
-function fill_solution!(lshaped::AbstractLShapedSolver,stochasticprogram::JuMP.Model)
+function fill_solution!(stochasticprogram::StochasticProgram, lshaped::AbstractLShapedSolver)
     # First stage
-    nrows, ncols = length(stochasticprogram.linconstr), stochasticprogram.numCols
-    stochasticprogram.colVal = copy(decision(lshaped))
-    stochasticprogram.redCosts = try
+    first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+    nrows, ncols = first_stage_dims(stochasticprogram)
+    StochasticPrograms.set_decision!(stochasticprogram, decision(lshaped))
+    μ = try
         MPB.getreducedcosts(lshaped.mastersolver.lqmodel)[1:ncols]
     catch
         fill(NaN, ncols)
     end
-    stochasticprogram.linconstrDuals = try
+    StochasticPrograms.set_first_stage_redcosts!(stochasticprogram, μ)
+    λ = try
         MPB.getconstrduals(lshaped.mastersolver.lqmodel)[1:nrows]
     catch
         fill(NaN, nrows)
     end
+    StochasticPrograms.set_first_stage_duals!(stochasticprogram, λ)
     # Second stage
-    fill_submodels!(lshaped,scenarioproblems(stochasticprogram))
-    # Now safe to generate the objective value of the stochastic program
-    stochasticprogram.objVal = StochasticPrograms.calculate_objective_value(stochasticprogram)
+    fill_submodels!(lshaped, scenarioproblems(stochasticprogram))
+end
+
+function solverstr(solver::LShapedSolver)
+    if solver.variant == :ls
+        return "L-shaped"
+    elseif solver.variant == :dls
+        return "Distributed L-shaped"
+    elseif solver.variant == :rd
+        return "Regularized L-shaped"
+    elseif solver.variant == :drd
+        return "Distributed regularized L-shaped"
+    elseif solver.variant == :tr
+        return "Trust-region L-shaped"
+    elseif solver.variant == :dtr
+        return "Distributed trust-region L-shaped"
+    elseif solver.variant == :lv
+        return "Level-set L-shaped"
+    elseif solver.variant == :dlv
+        return "Distributed level-set L-shaped"
+    else
+        error("Unknown L-Shaped variant: ", solver.variant)
+    end
 end

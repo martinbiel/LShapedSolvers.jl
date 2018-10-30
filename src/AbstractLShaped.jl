@@ -26,7 +26,7 @@ function set_params!(lshaped::AbstractLShapedSolver; kwargs...)
 end
 
 function update_solution!(lshaped::AbstractLShapedSolver)
-    ncols = lshaped.structuredmodel.numCols
+    ncols = decision_length(lshaped.stochasticprogram)
     nb = nbundles(lshaped)
     x = getsolution(lshaped.mastersolver)
     lshaped.mastervector[:] = x[1:ncols+nb]
@@ -43,10 +43,6 @@ function current_objective_value(lshaped::AbstractLShapedSolver,Qs::AbstractVect
     return lshaped.c⋅lshaped.x + sum(Qs)
 end
 current_objective_value(lshaped) = current_objective_value(lshaped,lshaped.subobjectives)
-
-function get_decision(lshaped::AbstractLShapedSolver)
-    return lshaped.x
-end
 
 function get_objective_value(lshaped::AbstractLShapedSolver)
     if !isempty(lshaped.Q_history)
@@ -80,7 +76,7 @@ function prepare_master!(lshaped::AbstractLShapedSolver{false})
     end
 end
 
-function resolve_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+function resolve_subproblems!(lshaped::AbstractLShapedSolver{F,T}) where {F, T <: Real}
     # Update subproblems
     update_subproblems!(lshaped.subproblems,lshaped.x)
     # Solve sub problems
@@ -195,7 +191,7 @@ function log!(lshaped::AbstractLShapedSolver)
     end
 end
 
-function log!(lshaped::AbstractLShapedSolver,t::Integer)
+function log!(lshaped::AbstractLShapedSolver, t::Integer)
     @unpack Q,θ = lshaped.solverdata
     lshaped.Q_history[t] = Q
     lshaped.θ_history[t] = θ
@@ -222,17 +218,17 @@ end
 
 # Cut functions #
 # ======================================================================== #
-active(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = active(hyperplane,lshaped.x,lshaped.parameters.τ)
-active(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = optimal(cut,lshaped.x,lshaped.θs[cut.id],lshaped.parameters.τ)
-satisfied(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = satisfied(hyperplane,lshaped.x,lshaped.parameters.τ)
-satisfied(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = satisfied(cut,lshaped.x,lshaped.θs[cut.id],lshaped.parameters.τ)
-violated(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = !satisfied(lshaped,hyperplane)
-gap(lshaped::AbstractLShapedSolver,hyperplane::HyperPlane) = gap(hyperplane,lshaped.x)
-gap(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut}) = gap(cut,lshaped.x,lshaped.θs[cut.id])
+active(lshaped::AbstractLShapedSolver, hyperplane::HyperPlane) = active(hyperplane, lshaped.x, lshaped.parameters.τ)
+active(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}) = optimal(cut, lshaped.x, lshaped.θs[cut.id], lshaped.parameters.τ)
+satisfied(lshaped::AbstractLShapedSolver, hyperplane::HyperPlane) = satisfied(hyperplane, lshaped.x, lshaped.parameters.τ)
+satisfied(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}) = satisfied(cut, lshaped.x, lshaped.θs[cut.id], lshaped.parameters.τ)
+violated(lshaped::AbstractLShapedSolver, hyperplane::HyperPlane) = !satisfied(lshaped, hyperplane)
+gap(lshaped::AbstractLShapedSolver, hyperplane::HyperPlane) = gap(hyperplane, lshaped.x)
+gap(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}) = gap(cut, lshaped.x, lshaped.θs[cut.id])
 
-add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = add_cut!(lshaped,cut,lshaped.subobjectives)
+add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane) = add_cut!(lshaped, cut, lshaped.subobjectives)
 
-function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector,Q::Real)
+function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}, subobjectives::AbstractVector, Q::Real)
     θ = lshaped.θs[cut.id]
     @unpack τ = lshaped.parameters
     # Update objective
@@ -243,55 +239,55 @@ function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},
         return false
     end
     # Add optimality cut
-    process_cut!(lshaped,cut)
-    MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    process_cut!(lshaped, cut)
+    MPB.addconstr!(lshaped.mastersolver.lqmodel, lowlevel(cut)...)
     if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
         updatemodel!(lshaped.mastersolver.lqmodel)
     end
-    push!(lshaped.cuts,cut)
+    push!(lshaped.cuts, cut)
     return true
 end
-add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector,x::AbstractVector) = add_cut!(lshaped,cut,subobjectives,cut(x))
-add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{OptimalityCut},subobjectives::AbstractVector) = add_cut!(lshaped,cut,subobjectives,lshaped.x)
+add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}, subobjectives::AbstractVector, x::AbstractVector) = add_cut!(lshaped, cut,subobjectives, cut(x))
+add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}, subobjectives::AbstractVector) = add_cut!(lshaped, cut, subobjectives, lshaped.x)
 
-function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},subobjectives::AbstractVector,Q::Real)
+function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{FeasibilityCut}, subobjectives::AbstractVector, Q::Real)
     # Ensure that there is no false convergence
     subobjectives[cut.id] = Q
     # Add feasibility cut
-    process_cut!(lshaped,cut)
-    MPB.addconstr!(lshaped.mastersolver.lqmodel,lowlevel(cut)...)
+    process_cut!(lshaped, cut)
+    MPB.addconstr!(lshaped.mastersolver.lqmodel, lowlevel(cut)...)
     if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
         updatemodel!(lshaped.mastersolver.lqmodel)
     end
-    push!(lshaped.cuts,cut)
+    push!(lshaped.cuts, cut)
     return true
 end
-add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{FeasibilityCut},subobjectives::AbstractVector) = add_cut!(lshaped,cut,subobjectives,Inf)
+add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{FeasibilityCut}, subobjectives::AbstractVector) = add_cut!(lshaped, cut, subobjectives, Inf)
 
-function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Infeasible},subobjectives::AbstractVector)
+function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{Infeasible}, subobjectives::AbstractVector)
     @warn "Subproblem $cut.id is infeasible, procedure will abort."
     subobjectives[cut.id] = Inf
     return true
 end
 
-function add_cut!(lshaped::AbstractLShapedSolver,cut::HyperPlane{Unbounded},subobjectives::AbstractVector)
+function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{Unbounded}, subobjectives::AbstractVector)
     @warn "Subproblem $cut.id is unbounded, procedure will abort."
     subobjectives[cut.id] = -Inf
     return true
 end
 
-function add_to_bundle!(lshaped::AbstractLShapedSolver,bundle::CutBundle,cut::HyperPlane)
-    add_cut!(lshaped,cut)
+function add_to_bundle!(lshaped::AbstractLShapedSolver, bundle::CutBundle, cut::HyperPlane)
+    add_cut!(lshaped, cut)
     bundle.q += cut(lshaped.x)
 end
 
-function add_to_bundle!(lshaped::AbstractLShapedSolver,bundle::CutBundle,cut::HyperPlane{OptimalityCut})
-    push!(bundle.cuts,cut)
+function add_to_bundle!(lshaped::AbstractLShapedSolver, bundle::CutBundle, cut::HyperPlane{OptimalityCut})
+    push!(bundle.cuts, cut)
     bundle.q += cut(lshaped.x)
 end
 
-update_objective!(lshaped::AbstractLShapedSolver,cut::HyperPlane) = nothing
-function update_objective!(lshaped::AbstractLShapedSolver{true},cut::HyperPlane{OptimalityCut})
+update_objective!(lshaped::AbstractLShapedSolver, cut::HyperPlane) = nothing
+function update_objective!(lshaped::AbstractLShapedSolver{true}, cut::HyperPlane{OptimalityCut})
     # Ensure that θi is included in minimization if feasibility cuts are used
     c = MPB.getobj(lshaped.mastersolver.lqmodel)
     if c[length(lshaped.x)+cut.id] == 0.0
@@ -301,21 +297,21 @@ function update_objective!(lshaped::AbstractLShapedSolver{true},cut::HyperPlane{
 end
 
 function show(io::IO, lshaped::AbstractLShapedSolver)
-    println(io,typeof(lshaped).name.name)
-    println(io,"State:")
-    show(io,lshaped.solverdata)
-    println(io,"Parameters:")
-    show(io,lshaped.parameters)
+    println(io, typeof(lshaped).name.name)
+    println(io, "State:")
+    show(io, lshaped.solverdata)
+    println(io, "Parameters:")
+    show(io, lshaped.parameters)
 end
 
 function show(io::IO, ::MIME"text/plain", lshaped::AbstractLShapedSolver)
-    show(io,lshaped)
+    show(io, lshaped)
 end
 # ======================================================================== #
 
 # Plot recipe #
 # ======================================================================== #
-@recipe f(lshaped::AbstractLShapedSolver) = lshaped,-1
+@recipe f(lshaped::AbstractLShapedSolver) = lshaped, -1
 @recipe function f(lshaped::AbstractLShapedSolver, time::Real; showθ = false)
     length(lshaped.Q_history) > 0 || error("No solution data. Has solver been run?")
     showθ && (length(lshaped.θ_history) > 0 || error("No solution data. Has solver been run?"))
@@ -335,11 +331,11 @@ end
     ylabel := "Q"
     ylims --> (Qmin-increment,Qmax+increment)
     if time == -1
-        xlims --> (1,length(lshaped.Q_history)+1)
+        xlims --> (1, length(lshaped.Q_history)+1)
         xticks --> 1:5:length(lshaped.Q_history)
     else
-        xlims --> (0,time)
-        xticks --> linspace(0,time,ceil(Int,length(lshaped.Q_history)/5))
+        xlims --> (0, time)
+        xticks --> linspace(0, time, ceil(Int,length(lshaped.Q_history)/5))
     end
     yticks --> Qmin:increment:Qmax
     xformatter := (d) -> @sprintf("%.1f",d)
@@ -359,9 +355,9 @@ end
         label --> "Q"
         seriescolor --> :black
         if time == -1
-            1:1:length(lshaped.Q_history),lshaped.Q_history
+            1:1:length(lshaped.Q_history), lshaped.Q_history
         else
-            linspace(0,time,length(lshaped.Q_history)),lshaped.Q_history
+            linspace(0,time,length(lshaped.Q_history)), lshaped.Q_history
         end
     end
 
@@ -373,9 +369,9 @@ end
             linecolor --> :red
             linewidth --> 2
             if time == -1
-                1:1:length(lshaped.θ_history),lshaped.θ_history
+                1:1:length(lshaped.θ_history), lshaped.θ_history
             else
-                linspace(0,time,length(lshaped.θ_history)),lshaped.θ_history
+                linspace(0,time,length(lshaped.θ_history)), lshaped.θ_history
             end
         end
     end

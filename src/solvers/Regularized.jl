@@ -38,8 +38,8 @@ Functor object for the regularized decomposition L-shaped algorithm. Create by s
 - `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
 ...
 """
-struct Regularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
-    structuredmodel::JuMP.Model
+struct Regularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
+    stochasticprogram::SP
     solverdata::RegularizedData{T}
 
     # Master
@@ -70,50 +70,50 @@ struct Regularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolv
 
     @implement_trait Regularized IsRegularized
 
-    function (::Type{Regularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
+    function (::Type{Regularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() > 1
             @warn "There are worker processes, consider using distributed version of algorithm"
         end
-        length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
-        !haskey(model.ext,:SP) && error("The provided model is not structured")
+        first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+        length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
 
-        T = promote_type(eltype(ξ₀),Float32)
-        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        c_ *= model.objSense == :Min ? 1 : -1
-        mastervector = convert(AbstractVector{T},copy(ξ₀))
-        x₀_ = convert(AbstractVector{T},copy(ξ₀))
-        ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
+        T = promote_type(eltype(ξ₀), Float32)
+        c_ = convert(AbstractVector{T}, JuMP.prepAffObjective(first_stage))
+        c_ *= first_stage.objSense == :Min ? 1 : -1
+        ξ₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        x₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        mastervector = convert(AbstractVector{T}, copy(ξ₀))
         A = typeof(ξ₀_)
-
-        msolver = LQSolver(model,mastersolver)
+        SP = typeof(stochasticprogram)
+        msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = StochasticPrograms.nscenarios(model)
+        n = StochasticPrograms.nscenarios(stochasticprogram)
 
-        lshaped = new{F,T,A,M,S}(model,
-                                 RegularizedData{T}(),
-                                 msolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 n,
-                                 Vector{SubProblem{F,T,A,S}}(),
-                                 A(),
-                                 ξ₀_,
-                                 A(),
-                                 A(),
-                                 A(),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 RegularizedParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "RD L-Shaped Gap "))
+        lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
+                                    RegularizedData{T}(),
+                                    msolver,
+                                    mastervector,
+                                    c_,
+                                    x₀_,
+                                    n,
+                                    Vector{SubProblem{F,T,A,S}}(),
+                                    A(),
+                                    ξ₀_,
+                                    A(),
+                                    A(),
+                                    A(),
+                                    A(),
+                                    Vector{SparseHyperPlane{T}}(),
+                                    A(),
+                                    RegularizedParameters{T}(;kw...),
+                                    ProgressThresh(1.0, "RD L-Shaped Gap "))
         # Initialize solver
-        init!(lshaped,subsolver)
+        init!(lshaped, subsolver)
         return lshaped
     end
 end
-Regularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = Regularized(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
+Regularized(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = Regularized(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::Regularized)()
     # Reset timer

@@ -22,8 +22,8 @@ Functor object for the L-shaped algorithm. Create by supplying `:ls` to the `LSh
 - `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
 ...
 """
-struct LShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
-    structuredmodel::JuMP.Model
+struct LShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
+    stochasticprogram::SP
     solverdata::LShapedData{T}
 
     # Master
@@ -47,46 +47,46 @@ struct LShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} 
     parameters::LShapedParameters{T}
     progress::ProgressThresh{T}
 
-    function (::Type{LShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
+    function (::Type{LShaped})(stochasticprogram::StochasticProgram, x₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() > 1
             @warn "There are worker processes, consider using distributed version of algorithm"
         end
-        length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
-        !haskey(model.ext,:SP) && error("The provided model is not structured")
+        first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+        length(x₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(x₀), " should be ", first_stage.numCols)
 
-        T = promote_type(eltype(x₀),Float32)
-        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        c_ *= model.objSense == :Min ? 1 : -1
-        x₀_ = convert(AbstractVector{T},copy(x₀))
-        mastervector = convert(AbstractVector{T},copy(x₀))
+        T = promote_type(eltype(x₀), Float32)
+        c_ = convert(AbstractVector{T}, JuMP.prepAffObjective(first_stage))
+        c_ *= first_stage.objSense == :Min ? 1 : -1
+        x₀_ = convert(AbstractVector{T}, copy(x₀))
+        mastervector = convert(AbstractVector{T}, copy(x₀))
         A = typeof(x₀_)
-
-        msolver = LQSolver(model,mastersolver)
+        SP = typeof(stochasticprogram)
+        msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = StochasticPrograms.nscenarios(model)
+        n = StochasticPrograms.nscenarios(stochasticprogram)
 
-        lshaped = new{F,T,A,M,S}(model,
-                                 LShapedData{T}(),
-                                 msolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 A(),
-                                 n,
-                                 Vector{SubProblem{F,T,A,S}}(),
-                                 A(),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 LShapedParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "L-Shaped Gap "))
+        lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
+                                    LShapedData{T}(),
+                                    msolver,
+                                    mastervector,
+                                    c_,
+                                    x₀_,
+                                    A(),
+                                    n,
+                                    Vector{SubProblem{F,T,A,S}}(),
+                                    A(),
+                                    A(),
+                                    Vector{SparseHyperPlane{T}}(),
+                                    A(),
+                                    LShapedParameters{T}(;kw...),
+                                    ProgressThresh(1.0, "L-Shaped Gap "))
         # Initialize solver
-        init!(lshaped,subsolver)
+        init!(lshaped, subsolver)
         return lshaped
     end
 end
-LShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = LShaped(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
+LShaped(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = LShaped(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::LShaped)()
     # Reset timer

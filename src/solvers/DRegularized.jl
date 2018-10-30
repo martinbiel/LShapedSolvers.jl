@@ -41,8 +41,8 @@ Functor object for the distributed regularized L-shaped algorithm. Create by sup
 - `linearize::Bool = false`: If `true`, the quadratic terms in the master problem objective are linearized through a ∞-norm approximation.
 ...
 """
-struct DRegularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
-    structuredmodel::JuMP.Model
+struct DRegularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
+    stochasticprogram::SP
     solverdata::DRegularizedData{T}
 
     # Master
@@ -81,56 +81,56 @@ struct DRegularized{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSol
     @implement_trait DRegularized IsRegularized
     @implement_trait DRegularized IsParallel
 
-    function (::Type{DRegularized})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
+    function (::Type{DRegularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return Regularized(model,ξ₀,mastersolver,subsolver; kw...)
+            return Regularized(stochasticprogram, ξ₀, mastersolver, subsolver; kw...)
         end
-        length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
-        !haskey(model.ext,:SP) && error("The provided model is not structured")
+        first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+        length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
 
-        T = promote_type(eltype(ξ₀),Float32)
-        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        c_ *= model.objSense == :Min ? 1 : -1
-        mastervector = convert(AbstractVector{T},copy(ξ₀))
-        x₀_ = convert(AbstractVector{T},copy(ξ₀))
-        ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
-        A = typeof(x₀_)
-
-        msolver = LQSolver(model,mastersolver)
+        T = promote_type(eltype(ξ₀), Float32)
+        c_ = convert(AbstractVector{T}, JuMP.prepAffObjective(first_stage))
+        c_ *= first_stage.objSense == :Min ? 1 : -1
+        ξ₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        x₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        mastervector = convert(AbstractVector{T}, copy(ξ₀))
+        A = typeof(ξ₀_)
+        SP = typeof(stochasticprogram)
+        msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = StochasticPrograms.nscenarios(model)
+        n = StochasticPrograms.nscenarios(stochasticprogram)
 
-        lshaped = new{F,T,A,M,S}(model,
-                                 DRegularizedData{T}(),
-                                 msolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 A(),
-                                 n,
-                                 Vector{A}(),
-                                 Vector{Int}(),
-                                 Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
-                                 Vector{Work}(undef,nworkers()),
-                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                                 Vector{Future}(undef,nworkers()),
-                                 ξ₀_,
-                                 A(),
-                                 A(),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 DRegularizedParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
+        lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
+                                    DRegularizedData{T}(),
+                                    msolver,
+                                    mastervector,
+                                    c_,
+                                    x₀_,
+                                    A(),
+                                    n,
+                                    Vector{A}(),
+                                    Vector{Int}(),
+                                    Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                    Vector{Work}(undef,nworkers()),
+                                    RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                    RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                    Vector{Future}(undef,nworkers()),
+                                    ξ₀_,
+                                    A(),
+                                    A(),
+                                    A(),
+                                    Vector{SparseHyperPlane{T}}(),
+                                    A(),
+                                    DRegularizedParameters{T}(;kw...),
+                                    ProgressThresh(1.0, "Distributed RD L-Shaped Gap "))
         # Initialize solver
-        init!(lshaped,subsolver)
+        init!(lshaped, subsolver)
         return lshaped
     end
 end
-DRegularized(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DRegularized(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
+DRegularized(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DRegularized(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::DRegularized)()
     # Reset timer

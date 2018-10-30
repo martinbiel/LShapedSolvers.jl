@@ -1,7 +1,7 @@
 using LShapedSolvers
+using LinearAlgebra
 using Test
 using Logging
-using Distributed
 using JuMP
 using StochasticPrograms
 using GLPKMathProgInterface
@@ -16,7 +16,7 @@ lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
             (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
             (LShapedSolver(:lv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
             (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
-problems = Vector{Tuple{JuMP.Model,String}}()
+problems = Vector{Tuple{<:StochasticProgram,String}}()
 @info "Loading test problems..."
 @info "Loading simple..."
 include("simple.jl")
@@ -29,44 +29,48 @@ include("infeasible.jl")
 @testset "Sequential solvers" begin
     @testset "Simple problems" begin
         @testset "$lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
-            solve(sp,solver=reference_solver)
+            optimize!(sp, solver=reference_solver)
             x̄ = optimal_decision(sp)
             Q̄ = optimal_value(sp)
-            solve(sp,solver=lsolver)
+            optimize!(sp, solver=lsolver)
             @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+            @test norm(optimal_decision(sp) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
         end
         @testset "Bundled $lsname Solver: $name" for (lsolver,lsname) in lsolvers, (sp,name) in problems
-            solve(sp,solver=reference_solver)
+            optimize!(sp, solver=reference_solver)
             x̄ = optimal_decision(sp)
             Q̄ = optimal_value(sp)
-            add_params!(lsolver,bundle=2)
-            solve(sp,solver=lsolver)
+            add_params!(lsolver, bundle=2)
+            optimize!(sp, solver=lsolver)
             @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
+            @test norm(optimal_decision(sp) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
         end
     end
     @testset "Infeasible problem" begin
         @testset "$lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-            solve(infeasible,solver=reference_solver)
+            optimize!(infeasible, solver=reference_solver)
             x̄ = optimal_decision(infeasible)
             Q̄ = optimal_value(infeasible)
             with_logger(NullLogger()) do
-                @test solve(infeasible,solver=lsolver) == :Infeasible
+                @test optimize!(infeasible, solver=lsolver) == :Infeasible
             end
-            add_params!(lsolver,checkfeas=true)
-            solve(infeasible,solver=lsolver)
+            add_params!(lsolver, checkfeas=true)
+            optimize!(infeasible, solver=lsolver)
             @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
+            @test norm(optimal_decision(infeasible) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
         end
         @testset "Bundled $lsname Solver: Feasibility cuts" for (lsolver,lsname) in lsolvers
-            solve(infeasible,solver=reference_solver)
+            optimize!(infeasible, solver=reference_solver)
             x̄ = optimal_decision(infeasible)
             Q̄ = optimal_value(infeasible)
-            add_params!(lsolver,checkfeas=false,bundle=2)
+            add_params!(lsolver, checkfeas=false, bundle=2)
             with_logger(NullLogger()) do
-                @test solve(infeasible,solver=lsolver) == :Infeasible
+                @test optimize!(infeasible, solver=lsolver) == :Infeasible
             end
-            add_params!(lsolver,checkfeas=true,bundle=2)
-            solve(infeasible,solver=lsolver)
+            add_params!(lsolver, checkfeas=true, bundle=2)
+            optimize!(infeasible, solver=lsolver)
             @test abs(optimal_value(infeasible) - Q̄)/(1e-10+abs(Q̄)) <= τ
+            @test norm(optimal_decision(infeasible) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
         end
     end
 end

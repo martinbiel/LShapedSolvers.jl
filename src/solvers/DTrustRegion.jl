@@ -39,8 +39,8 @@ Functor object for the distributed trust-region L-shaped algorithm. Create by su
 - `autotune::Bool = false`: If `true`, heuristic methods are used to set `Δ̅` and `Δ̅` based on the initial decision.
 ...
 """
-struct DTrustRegion{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
-    structuredmodel::JuMP.Model
+struct DTrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
+    stochasticprogram::SP
     solverdata::DTrustRegionData{T}
 
     # Master
@@ -80,57 +80,57 @@ struct DTrustRegion{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSol
     @implement_trait DTrustRegion HasTrustRegion
     @implement_trait DTrustRegion IsParallel
 
-    function (::Type{DTrustRegion})(model::JuMP.Model,ξ₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
+    function (::Type{DTrustRegion})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return TrustRegion(model,ξ₀,mastersolver,subsolver; kw...)
+            return TrustRegion(stochasticprogram, ξ₀, mastersolver, subsolver; kw...)
         end
-        length(ξ₀) != model.numCols && error("Incorrect length of starting guess, has ",length(ξ₀)," should be ",model.numCols)
-        !haskey(model.ext,:SP) && error("The provided model is not structured")
+        first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+        length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
 
-        T = promote_type(eltype(ξ₀),Float32)
-        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        c_ *= model.objSense == :Min ? 1 : -1
-        mastervector = convert(AbstractVector{T},copy(ξ₀))
-        x₀_ = convert(AbstractVector{T},copy(ξ₀))
-        ξ₀_ = convert(AbstractVector{T},copy(ξ₀))
-        A = typeof(x₀_)
-
-        msolver = LQSolver(model,mastersolver)
+        T = promote_type(eltype(ξ₀), Float32)
+        c_ = convert(AbstractVector{T}, JuMP.prepAffObjective(first_stage))
+        c_ *= first_stage.objSense == :Min ? 1 : -1
+        ξ₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        x₀_ = convert(AbstractVector{T}, copy(ξ₀))
+        mastervector = convert(AbstractVector{T}, copy(ξ₀))
+        A = typeof(ξ₀_)
+        SP = typeof(stochasticprogram)
+        msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = StochasticPrograms.nscenarios(model)
+        n = StochasticPrograms.nscenarios(stochasticprogram)
 
-        lshaped = new{F,T,A,M,S}(model,
-                                 DTrustRegionData{T}(),
-                                 msolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 A(),
-                                 n,
-                                 Vector{A}(),
-                                 Vector{Int}(),
-                                 Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
-                                 Vector{Work}(undef,nworkers()),
-                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                                 Vector{Future}(undef,nworkers()),
-                                 ξ₀_,
-                                 Vector{Inf}(),
-                                 A(),
-                                 A(),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 DTrustRegionParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "Distributed TR L-Shaped Gap "))
+        lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
+                                    DTrustRegionData{T}(),
+                                    msolver,
+                                    mastervector,
+                                    c_,
+                                    x₀_,
+                                    A(),
+                                    n,
+                                    Vector{A}(),
+                                    Vector{Int}(),
+                                    Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                    Vector{Work}(undef,nworkers()),
+                                    RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                    RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                    Vector{Future}(undef,nworkers()),
+                                    ξ₀_,
+                                    Vector{Inf}(),
+                                    A(),
+                                    A(),
+                                    A(),
+                                    Vector{SparseHyperPlane{T}}(),
+                                    A(),
+                                    DTrustRegionParameters{T}(;kw...),
+                                    ProgressThresh(1.0, "Distributed TR L-Shaped Gap "))
         # Initialize solver
-        init!(lshaped,subsolver)
+        init!(lshaped, subsolver)
         return lshaped
     end
 end
-DTrustRegion(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DTrustRegion(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
+DTrustRegion(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DTrustRegion(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::DTrustRegion)()
     # Reset timer
@@ -147,21 +147,21 @@ function (lshaped::DTrustRegion)()
     end
 end
 
-@implement_traitfn function log_regularization!(lshaped::DTrustRegion,HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion, HasTrustRegion)
     @unpack Q̃,Δ,incubent = lshaped.solverdata
     push!(lshaped.Q̃_history,Q̃)
     push!(lshaped.Δ_history,Δ)
     push!(lshaped.incubents,incubent)
 end
 
-@implement_traitfn function log_regularization!(lshaped::DTrustRegion,t::Integer,HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion, t::Integer, HasTrustRegion)
     @unpack Q̃,Δ,incubent = lshaped.solverdata
     lshaped.Q̃_history[t] = Q̃
     lshaped.Δ_history[t] = Δ
     lshaped.incubents[t] = incubent
 end
 
-@implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
+@implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion, HasTrustRegion)
     @unpack Q,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
     t = lshaped.solverdata.timestamp

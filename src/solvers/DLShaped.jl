@@ -25,8 +25,8 @@ Functor object for the distributed L-shaped algorithm. Create by supplying `:dls
 - `log::Bool = true`: Specifices if L-shaped procedure should be logged on standard output or not.
 ...
 """
-struct DLShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
-    structuredmodel::JuMP.Model
+struct DLShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <: LQSolver, S <: LQSolver} <: AbstractLShapedSolver{F,T,A,M,S}
+    stochasticprogram::SP
     solverdata::DLShapedData{T}
 
     # Master
@@ -59,52 +59,52 @@ struct DLShaped{F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
 
     @implement_trait DLShaped IsParallel
 
-    function (::Type{DLShaped})(model::JuMP.Model,x₀::AbstractVector,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,F::Bool; kw...)
+    function (::Type{DLShaped})(stochasticprogram::StochasticProgram, x₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return LShaped(model,x₀,mastersolver,subsolver; kw...)
+            return LShaped(stochasticprogram, x₀, mastersolver, subsolver; kw...)
         end
-        length(x₀) != model.numCols && error("Incorrect length of starting guess, has ",length(x₀)," should be ",model.numCols)
-        !haskey(model.ext,:SP) && error("The provided model is not structured")
+        first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
+        length(x₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(x₀), " should be ", first_stage.numCols)
 
-        T = promote_type(eltype(x₀),Float32)
-        c_ = convert(AbstractVector{T},JuMP.prepAffObjective(model))
-        c_ *= model.objSense == :Min ? 1 : -1
-        mastervector = convert(AbstractVector{T},copy(x₀))
-        x₀_ = convert(AbstractVector{T},copy(x₀))
+        T = promote_type(eltype(x₀), Float32)
+        c_ = convert(AbstractVector{T}, JuMP.prepAffObjective(first_stage))
+        c_ *= first_stage.objSense == :Min ? 1 : -1
+        x₀_ = convert(AbstractVector{T}, copy(x₀))
+        mastervector = convert(AbstractVector{T}, copy(x₀))
         A = typeof(x₀_)
-
-        msolver = LQSolver(model,mastersolver)
+        SP = typeof(stochasticprogram)
+        msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
         S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
-        n = StochasticPrograms.nscenarios(model)
+        n = StochasticPrograms.nscenarios(stochasticprogram)
 
-        lshaped = new{F,T,A,M,S}(model,
-                                 DLShapedData{T}(),
-                                 msolver,
-                                 mastervector,
-                                 c_,
-                                 x₀_,
-                                 A(),
-                                 n,
-                                 Vector{A}(),
-                                 Vector{Int}(),
-                                 Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
-                                 Vector{Work}(undef,nworkers()),
-                                 RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
-                                 RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
-                                 Vector{Future}(undef,nworkers()),
-                                 A(),
-                                 Vector{SparseHyperPlane{T}}(),
-                                 A(),
-                                 DLShapedParameters{T}(;kw...),
-                                 ProgressThresh(1.0, "Distributed L-Shaped Gap "))
+        lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
+                                    DLShapedData{T}(),
+                                    msolver,
+                                    mastervector,
+                                    c_,
+                                    x₀_,
+                                    A(),
+                                    n,
+                                    Vector{A}(),
+                                    Vector{Int}(),
+                                    Vector{SubWorker{F,T,A,S}}(undef,nworkers()),
+                                    Vector{Work}(undef,nworkers()),
+                                    RemoteChannel(() -> DecisionChannel(Dict{Int,A}())),
+                                    RemoteChannel(() -> Channel{QCut{T}}(4*nworkers()*n)),
+                                    Vector{Future}(undef,nworkers()),
+                                    A(),
+                                    Vector{SparseHyperPlane{T}}(),
+                                    A(),
+                                    DLShapedParameters{T}(;kw...),
+                                    ProgressThresh(1.0, "Distributed L-Shaped Gap "))
         # Initialize solver
-        init!(lshaped,subsolver)
+        init!(lshaped, subsolver)
         return lshaped
     end
 end
-DLShaped(model::JuMP.Model,mastersolver::MPB.AbstractMathProgSolver,subsolver::MPB.AbstractMathProgSolver,checkfeas::Bool; kw...) = DLShaped(model,rand(model.numCols),mastersolver,subsolver,checkfeas; kw...)
+DLShaped(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DLShaped(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::DLShaped)()
     # Reset timer
