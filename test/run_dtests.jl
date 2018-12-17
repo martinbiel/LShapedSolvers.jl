@@ -20,18 +20,18 @@ using Ipopt
 τ = 1e-5
 reference_solver = GLPKSolverLP()
 qp_solver = IpoptSolver(print_level=0)
-dlsolvers = [(LShapedSolver(:dls,reference_solver,log=false),"L-Shaped"),
-             (LShapedSolver(:drd,qp_solver,subsolver=reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-             (LShapedSolver(:drd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-             (LShapedSolver(:dtr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-             (LShapedSolver(:dlv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
-             (LShapedSolver(:dlv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
-lsolvers = [(LShapedSolver(:ls,reference_solver,log=false),"L-Shaped"),
-            (LShapedSolver(:rd,qp_solver,subsolver=reference_solver,crash=Crash.EVP(),autotune=true,log=false),"RD L-Shaped"),
-            (LShapedSolver(:rd,reference_solver,crash=Crash.EVP(),autotune=true,log=false,linearize=true),"Linearized RD L-Shaped"),
-            (LShapedSolver(:tr,reference_solver,crash=Crash.EVP(),autotune=true,log=false),"TR L-Shaped"),
-            (LShapedSolver(:lv,reference_solver,projectionsolver=qp_solver,log=false),"Leveled L-Shaped"),
-            (LShapedSolver(:lv,reference_solver,log=false,linearize=true),"Linearized Leveled L-Shaped")]
+dlsolvers = [(LShapedSolver(reference_solver, distributed=true, log=false),"L-Shaped"),
+             (LShapedSolver(qp_solver, subsolver=reference_solver, crash=Crash.EVP(), regularization = :rd, distributed = true, autotune=true, log=false),"RD L-Shaped"),
+             (LShapedSolver(reference_solver, crash=Crash.EVP(), regularization = :rd, distributed = true, autotune=true, log=false, linearize=true),"Linearized RD L-Shaped"),
+             (LShapedSolver(reference_solver, crash=Crash.EVP(), regularization = :tr, distributed = true, autotune=true, log=false),"TR L-Shaped"),
+             (LShapedSolver(reference_solver, projectionsolver=qp_solver, regularization = :lv, distributed = true, log=false),"Leveled L-Shaped"),
+             (LShapedSolver(reference_solver, regularization = :lv, distributed = true, log=false, linearize=true),"Linearized Leveled L-Shaped")]
+lsolvers = [(LShapedSolver(reference_solver,log=false),"L-Shaped"),
+            (LShapedSolver(qp_solver, subsolver=reference_solver, crash=Crash.EVP(), regularization = :rd, autotune=true, log=false),"RD L-Shaped"),
+            (LShapedSolver(reference_solver, crash=Crash.EVP(), regularization = :rd, autotune=true, log=false, linearize=true),"Linearized RD L-Shaped"),
+            (LShapedSolver(reference_solver, crash=Crash.EVP(), regularization = :tr, autotune=true, log=false),"TR L-Shaped"),
+            (LShapedSolver(reference_solver, projectionsolver=qp_solver, regularization = :lv, log=false),"Leveled L-Shaped"),
+            (LShapedSolver(reference_solver, regularization = :lv, log=false, linearize=true),"Linearized Leveled L-Shaped")]
 problems = Vector{Tuple{<:StochasticProgram,String}}()
 @info "Loading test problems..."
 @info "Loading simple..."
@@ -63,6 +63,7 @@ include("infeasible.jl")
         end
         @testset "Distributed $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
             sp_nondist = copy(sp, procs = [1])
+            add_scenarios!(sp_nondist, scenarios(sp))
             optimize!(sp_nondist, solver=reference_solver)
             x̄ = optimal_decision(sp_nondist)
             Q̄ = optimal_value(sp_nondist)

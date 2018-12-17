@@ -227,7 +227,7 @@ function wait(channel::DecisionChannel, t)
 end
 
 SubWorker{F,T,A,S} = RemoteChannel{Channel{Vector{SubProblem{F,T,A,S}}}}
-ScenarioProblems{D,SD,S} = RemoteChannel{Channel{StochasticPrograms.ScenarioProblems{D,SD,S}}}
+ScenarioProblems{D,S} = RemoteChannel{Channel{StochasticPrograms.ScenarioProblems{D,S}}}
 Work = RemoteChannel{Channel{Int}}
 Decisions{A} = RemoteChannel{DecisionChannel{A}}
 QCut{T} = Tuple{Int,T,SparseHyperPlane{T}}
