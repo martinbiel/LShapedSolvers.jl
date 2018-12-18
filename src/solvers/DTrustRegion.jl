@@ -77,8 +77,8 @@ struct DTrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
     parameters::DTrustRegionParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait DTrustRegion HasTrustRegion
-    @implement_trait DTrustRegion IsParallel
+    @implement_trait DTrustRegion TR
+    @implement_trait DTrustRegion Parallel
 
     function (::Type{DTrustRegion})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1
@@ -147,21 +147,21 @@ function (lshaped::DTrustRegion)()
     end
 end
 
-@implement_traitfn function log_regularization!(lshaped::DTrustRegion, HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion, TR)
     @unpack Q̃,Δ,incubent = lshaped.solverdata
     push!(lshaped.Q̃_history,Q̃)
     push!(lshaped.Δ_history,Δ)
     push!(lshaped.incubents,incubent)
 end
 
-@implement_traitfn function log_regularization!(lshaped::DTrustRegion, t::Integer, HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::DTrustRegion, t::Integer, TR)
     @unpack Q̃,Δ,incubent = lshaped.solverdata
     lshaped.Q̃_history[t] = Q̃
     lshaped.Δ_history[t] = Δ
     lshaped.incubents[t] = incubent
 end
 
-@implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion, HasTrustRegion)
+@implement_traitfn function enlarge_trustregion!(lshaped::DTrustRegion, TR)
     @unpack Q,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
     t = lshaped.solverdata.timestamp
@@ -178,7 +178,7 @@ end
     end
 end
 
-@implement_traitfn function reduce_trustregion!(lshaped::DTrustRegion,HasTrustRegion)
+@implement_traitfn function reduce_trustregion!(lshaped::DTrustRegion, TR)
     @unpack Q,θ = lshaped.solverdata
     t = lshaped.solverdata.timestamp
     Δ̃ = lshaped.Δ_history[t]

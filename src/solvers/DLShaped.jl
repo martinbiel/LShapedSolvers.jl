@@ -57,7 +57,7 @@ struct DLShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <:
     parameters::DLShapedParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait DLShaped IsParallel
+    @implement_trait DLShaped Parallel
 
     function (::Type{DLShaped})(stochasticprogram::StochasticProgram, x₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1

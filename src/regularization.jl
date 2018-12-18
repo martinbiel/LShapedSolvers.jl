@@ -1,93 +1,93 @@
 # ------------------------------------------------------------
-# UsesRegularization: Algorithm uses some regularization method
+# Regularization: Algorithm uses some regularization method
 # ------------------------------------------------------------
-@define_trait UsesRegularization = begin
-    IsRegularized  # Algorithm uses the regularized decomposition method of Ruszczyński
-    HasTrustRegion # Algorithm uses the trust-region method of Linderoth/Wright
-    HasLevels      # Algorithm uses the level set method of Fábián/Szőke
+@define_trait Regularization = begin
+    RD   # Algorithm uses the regularized decomposition method of Ruszczyński
+    TR   # Algorithm uses the trust-region method of Linderoth/Wright
+    LV      # Algorithm uses the level set method of Fábián/Szőke
 end
 
-@define_traitfn UsesRegularization init_solver!(lshaped::AbstractLShapedSolver) = begin
-    function init_solver!(lshaped::AbstractLShapedSolver, !UsesRegularization)
+@define_traitfn Regularization init_solver!(lshaped::AbstractLShapedSolver) = begin
+    function init_solver!(lshaped::AbstractLShapedSolver, !Regularization)
         nothing
     end
 end
 
-@define_traitfn UsesRegularization log_regularization!(lshaped::AbstractLShapedSolver) = begin
-    function log_regularization!(lshaped::AbstractLShapedSolver, !UsesRegularization)
+@define_traitfn Regularization log_regularization!(lshaped::AbstractLShapedSolver) = begin
+    function log_regularization!(lshaped::AbstractLShapedSolver, !Regularization)
         nothing
     end
 end
 
-@define_traitfn UsesRegularization log_regularization!(lshaped::AbstractLShapedSolver, t::Integer) = begin
-    function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, !UsesRegularization)
+@define_traitfn Regularization log_regularization!(lshaped::AbstractLShapedSolver, t::Integer) = begin
+    function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, !Regularization)
         nothing
     end
 end
 
-@define_traitfn UsesRegularization take_step!(lshaped::AbstractLShapedSolver) = begin
-    function take_step!(lshaped::AbstractLShapedSolver, !UsesRegularization)
+@define_traitfn Regularization take_step!(lshaped::AbstractLShapedSolver) = begin
+    function take_step!(lshaped::AbstractLShapedSolver, !Regularization)
         nothing
     end
 end
 
-@define_traitfn UsesRegularization decision(lshaped::AbstractLShapedSolver) = begin
-    function decision(lshaped::AbstractLShapedSolver, !UsesRegularization)
+@define_traitfn Regularization decision(lshaped::AbstractLShapedSolver) = begin
+    function decision(lshaped::AbstractLShapedSolver, !Regularization)
         return lshaped.x
     end
 
-    function decision(lshaped::AbstractLShapedSolver, UsesRegularization)
+    function decision(lshaped::AbstractLShapedSolver, Regularization)
         return lshaped.ξ
     end
 end
 
-@define_traitfn UsesRegularization solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver) = begin
-    function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, !UsesRegularization)
+@define_traitfn Regularization solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver) = begin
+    function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, !Regularization)
         solver(lshaped.mastervector)
     end
 
-    function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, UsesRegularization)
+    function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, Regularization)
         solver(lshaped.mastervector)
     end
 end
 
-@define_traitfn UsesRegularization gap(lshaped::AbstractLShapedSolver) = begin
-    function gap(lshaped::AbstractLShapedSolver, !UsesRegularization)
+@define_traitfn Regularization gap(lshaped::AbstractLShapedSolver) = begin
+    function gap(lshaped::AbstractLShapedSolver, !Regularization)
         @unpack τ = lshaped.parameters
         @unpack Q,θ = lshaped.solverdata
         return abs(θ-Q)/(abs(Q)+1e-10)
     end
 
-    function gap(lshaped::AbstractLShapedSolver, UsesRegularization)
+    function gap(lshaped::AbstractLShapedSolver, Regularization)
         @unpack τ = lshaped.parameters
         @unpack Q̃,θ = lshaped.solverdata
         return abs(θ-Q̃)/(abs(Q̃)+1e-10)
     end
 end
 
-@define_traitfn UsesRegularization process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane) = begin
-    function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, !UsesRegularization)
+@define_traitfn Regularization process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane) = begin
+    function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, !Regularization)
         nothing
     end
 
-    function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, UsesRegularization)
-        nothing
-    end
-end
-
-@define_traitfn UsesRegularization project!(lshaped::AbstractLShapedSolver) = begin
-    function project!(lshaped::AbstractLShapedSolver, !UsesRegularization)
-        nothing
-    end
-
-    function project!(lshaped::AbstractLShapedSolver, UsesRegularization)
+    function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, Regularization)
         nothing
     end
 end
 
-# Is Regularized
+@define_traitfn Regularization project!(lshaped::AbstractLShapedSolver) = begin
+    function project!(lshaped::AbstractLShapedSolver, !Regularization)
+        nothing
+    end
+
+    function project!(lshaped::AbstractLShapedSolver, Regularization)
+        nothing
+    end
+end
+
+# RD
 # ------------------------------------------------------------
-@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, IsRegularized)
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, RD)
     if lshaped.parameters.autotune
         if lshaped.parameters.linearize
             σ̅ = max(4.0,0.01*norm(lshaped.x,Inf))
@@ -117,19 +117,19 @@ end
     add_penalty!(lshaped, lshaped.mastersolver.lqmodel, c, 1/lshaped.solverdata.σ, lshaped.ξ)
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, IsRegularized)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, RD)
     @unpack Q̃,σ = lshaped.solverdata
     push!(lshaped.Q̃_history, Q̃)
     push!(lshaped.σ_history, σ)
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, IsRegularized)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, RD)
     @unpack Q̃,σ = lshaped.solverdata
     lshaped.Q̃_history[t] = Q̃
     lshaped.σ_history[t] = σ
 end
 
-@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, IsRegularized)
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, RD)
     @unpack Q,Q̃,θ,σ = lshaped.solverdata
     @unpack τ,γ,σ̅,σ̲ = lshaped.parameters
     need_update = false
@@ -160,7 +160,7 @@ end
     nothing
 end
 
-@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, IsRegularized)
+@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, RD)
     if lshaped.parameters.linearize
         solve_linearized_problem!(lshaped, solver)
     else
@@ -168,13 +168,13 @@ end
     end
 end
 
-# HasTrustRegion
+# TR
 # ------------------------------------------------------------
-@define_traitfn HasTrustRegion set_trustregion!(lshaped::AbstractLShapedSolver)
-@define_traitfn HasTrustRegion enlarge_trustregion!(lshaped::AbstractLShapedSolver)
-@define_traitfn HasTrustRegion reduce_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn TR set_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn TR enlarge_trustregion!(lshaped::AbstractLShapedSolver)
+@define_traitfn TR reduce_trustregion!(lshaped::AbstractLShapedSolver)
 
-@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, TR)
     if lshaped.parameters.autotune
         Δ = max(1.0,0.01*norm(lshaped.x,Inf))
         Δ̅ = max(1000.0,norm(lshaped.x,Inf))
@@ -184,19 +184,19 @@ end
     set_trustregion!(lshaped)
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, TR)
     @unpack Q̃,Δ = lshaped.solverdata
     push!(lshaped.Q̃_history,Q̃)
     push!(lshaped.Δ_history,Δ)
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, HasTrustRegion)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, TR)
     @unpack Q̃,Δ = lshaped.solverdata
     lshaped.Q̃_history[t] = Q̃
     lshaped.Δ_history[t] = Δ
 end
 
-@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, TR)
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack γ = lshaped.parameters
     need_update = false
@@ -217,7 +217,7 @@ end
     nothing
 end
 
-@implement_traitfn function set_trustregion!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function set_trustregion!(lshaped::AbstractLShapedSolver, TR)
     nb = nbundles(lshaped)
     l = max.(StochasticPrograms.get_stage_one(lshaped.stochasticprogram).colLower, lshaped.ξ .- lshaped.solverdata.Δ)
     append!(l, fill(-Inf,nb))
@@ -227,7 +227,7 @@ end
     MPB.setvarUB!(lshaped.mastersolver.lqmodel, u)
 end
 
-@implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function enlarge_trustregion!(lshaped::AbstractLShapedSolver, TR)
     @unpack Q,Q̃,θ = lshaped.solverdata
     @unpack τ,Δ̅ = lshaped.parameters
     if Q̃ - Q >= 0.5*(Q̃-θ) && abs(norm(lshaped.ξ-lshaped.x,Inf) - lshaped.solverdata.Δ) <= τ
@@ -239,7 +239,7 @@ end
     end
 end
 
-@implement_traitfn function reduce_trustregion!(lshaped::AbstractLShapedSolver, HasTrustRegion)
+@implement_traitfn function reduce_trustregion!(lshaped::AbstractLShapedSolver, TR)
     @unpack Q,Q̃,θ = lshaped.solverdata
     ρ = min(1, lshaped.solverdata.Δ)*(Q-Q̃)/(Q̃-θ)
     if ρ > 0
@@ -255,7 +255,7 @@ end
     end
 end
 
-@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{FeasibilityCut}, HasTrustRegion)
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{FeasibilityCut}, TR)
     @unpack τ = lshaped.parameters
     if !satisfied(cut,lshaped.ξ,τ)
         A = [I cut.δQ; cut.δQ' 0*I]
@@ -265,10 +265,10 @@ end
     end
 end
 
-# Has Levels
+# Level-set
 # ------------------------------------------------------------
 
-@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, HasLevels)
+@implement_traitfn function init_solver!(lshaped::AbstractLShapedSolver, LV)
     # θs
     for i = 1:nbundles(lshaped)
         MPB.addvar!(lshaped.projectionsolver.lqmodel, -Inf, Inf, 0.0)
@@ -282,17 +282,17 @@ end
     end
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, HasLevels)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, LV)
     @unpack Q̃ = lshaped.solverdata
     push!(lshaped.Q̃_history, Q̃)
 end
 
-@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, HasLevels)
+@implement_traitfn function log_regularization!(lshaped::AbstractLShapedSolver, t::Integer, LV)
     @unpack Q̃ = lshaped.solverdata
     lshaped.Q̃_history[t] = Q̃
 end
 
-@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, HasLevels)
+@implement_traitfn function take_step!(lshaped::AbstractLShapedSolver, LV)
     @unpack Q,Q̃ = lshaped.solverdata
     @unpack τ = lshaped.parameters
     if Q + τ <= Q̃
@@ -302,7 +302,7 @@ end
     nothing
 end
 
-@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, HasLevels)
+@implement_traitfn function solve_problem!(lshaped::AbstractLShapedSolver, solver::LQSolver, LV)
     if lshaped.parameters.linearize
         solve_linearized_problem!(lshaped, solver)
     else
@@ -310,19 +310,19 @@ end
     end
 end
 
-@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, HasLevels)
+@implement_traitfn function process_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane, LV)
     MPB.addconstr!(lshaped.projectionsolver.lqmodel, lowlevel(cut)...)
     # TODO: Rewrite with MathOptInterface
 end
 
-@implement_traitfn function project!(lshaped::AbstractLShapedSolver{true}, HasLevels)
+@implement_traitfn function project!(lshaped::AbstractLShapedSolver{true}, LV)
     @unpack Q = lshaped.solverdata
     if Q < Inf
         _project!(lshaped)
     end
 end
 
-@implement_traitfn function project!(lshaped::AbstractLShapedSolver{false}, HasLevels)
+@implement_traitfn function project!(lshaped::AbstractLShapedSolver{false}, LV)
     _project!(lshaped)
 end
 
@@ -388,7 +388,7 @@ function add_penalty!(lshaped::AbstractLShapedSolver, model::MPB.AbstractLinearQ
             end
         end
         lshaped.solverdata.regularizerindex = first_stage_nconstraints(lshaped.stochasticprogram)+length(lshaped.cuts)+1
-        if hastrait(lshaped,HasLevels)
+        if hastrait(lshaped,LV)
             lshaped.solverdata.regularizerindex += 1
         end
     else

@@ -68,7 +68,7 @@ struct Regularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M
     parameters::RegularizedParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait Regularized IsRegularized
+    @implement_trait Regularized RD
 
     function (::Type{Regularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() > 1

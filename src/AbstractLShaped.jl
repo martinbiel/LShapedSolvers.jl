@@ -149,7 +149,7 @@ function iterate_nominal!(lshaped::AbstractLShapedSolver{F}) where F
     # Project (if applicable)
     project!(lshaped)
     # Check optimality if level sets are used
-    if hastrait(lshaped,HasLevels)
+    if hastrait(lshaped,LV)
         lshaped.solverdata.θ = calculate_estimate(lshaped)
         if check_optimality(lshaped)
             # Optimal

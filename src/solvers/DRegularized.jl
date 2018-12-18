@@ -78,8 +78,8 @@ struct DRegularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
     parameters::DRegularizedParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait DRegularized IsRegularized
-    @implement_trait DRegularized IsParallel
+    @implement_trait DRegularized RD
+    @implement_trait DRegularized Parallel
 
     function (::Type{DRegularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1

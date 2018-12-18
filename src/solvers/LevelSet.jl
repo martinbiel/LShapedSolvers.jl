@@ -60,7 +60,7 @@ struct LevelSet{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <:
     parameters::LevelSetParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait LevelSet HasLevels
+    @implement_trait LevelSet LV
 
     function (::Type{LevelSet})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, projectionsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() > 1

@@ -66,7 +66,7 @@ struct TrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M
     parameters::TrustRegionParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait TrustRegion HasTrustRegion
+    @implement_trait TrustRegion TR
 
     function (::Type{TrustRegion})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() > 1

@@ -70,8 +70,8 @@ struct DLevelSet{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <
     parameters::DLevelSetParameters{T}
     progress::ProgressThresh{T}
 
-    @implement_trait DLevelSet HasLevels
-    @implement_trait DLevelSet IsParallel
+    @implement_trait DLevelSet LV
+    @implement_trait DLevelSet Parallel
 
     function (::Type{DLevelSet})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, projectionsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1

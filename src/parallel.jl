@@ -1,17 +1,17 @@
 # ------------------------------------------------------------
-# IsParallel -> Algorithm is run in parallel
+# Parallel -> Algorithm is run in parallel
 # ------------------------------------------------------------
-@define_trait IsParallel
+@define_trait Parallel
 
-@define_traitfn IsParallel init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
-    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver, !IsParallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+@define_traitfn Parallel init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver} = begin
+    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver, !Parallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         # Prepare the subproblems
         load_subproblems!(lshaped, scenarioproblems(lshaped.stochasticprogram), subsolver)
         append!(lshaped.subobjectives, zeros(nbundles(lshaped)))
         return lshaped
     end
 
-    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver, IsParallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
+    function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver, Parallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
         # Partitioning
         (jobsize, extra) = divrem(nscenarios(lshaped), nworkers())
@@ -60,18 +60,18 @@
     end
 end
 
-@define_traitfn IsParallel iterate!(lshaped::AbstractLShapedSolver) = begin
-    function iterate!(lshaped::AbstractLShapedSolver, !IsParallel)
+@define_traitfn Parallel iterate!(lshaped::AbstractLShapedSolver) = begin
+    function iterate!(lshaped::AbstractLShapedSolver, !Parallel)
         iterate_nominal!(lshaped)
     end
 
-    function iterate!(lshaped::AbstractLShapedSolver, IsParallel)
+    function iterate!(lshaped::AbstractLShapedSolver, Parallel)
         iterate_parallel!(lshaped)
     end
 end
 
-@define_traitfn IsParallel nbundles(lshaped::AbstractLShapedSolver) = begin
-    function nbundles(lshaped::AbstractLShapedSolver, !IsParallel)
+@define_traitfn Parallel nbundles(lshaped::AbstractLShapedSolver) = begin
+    function nbundles(lshaped::AbstractLShapedSolver, !Parallel)
         (n, extra) = divrem(lshaped.nscenarios, lshaped.parameters.bundle)
         if extra > 0
             n += 1
@@ -79,7 +79,7 @@ end
         return n
     end
 
-    function nbundles(lshaped::AbstractLShapedSolver, IsParallel)
+    function nbundles(lshaped::AbstractLShapedSolver, Parallel)
         (jobsize, extra) = divrem(lshaped.nscenarios, nworkers())
         if extra > 0
             jobsize += 1
@@ -97,8 +97,8 @@ end
     end
 end
 
-@define_traitfn IsParallel init_workers!(lshaped::AbstractLShapedSolver) = begin
-    function init_workers!(lshaped::AbstractLShapedSolver, IsParallel)
+@define_traitfn Parallel init_workers!(lshaped::AbstractLShapedSolver) = begin
+    function init_workers!(lshaped::AbstractLShapedSolver, Parallel)
         for w in workers()
             lshaped.active_workers[w-1] = remotecall(work_on_subproblems!,
                                                      w,
@@ -112,8 +112,8 @@ end
     end
 end
 
-@define_traitfn IsParallel close_workers!(lshaped::AbstractLShapedSolver) = begin
-    function close_workers!(lshaped::AbstractLShapedSolver, IsParallel)
+@define_traitfn Parallel close_workers!(lshaped::AbstractLShapedSolver) = begin
+    function close_workers!(lshaped::AbstractLShapedSolver, Parallel)
         @async begin
             map((w)->close(w), lshaped.work)
             map(wait, lshaped.active_workers)
@@ -122,25 +122,25 @@ end
     end
 end
 
-@define_traitfn IsParallel calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector) = begin
-    function calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector, !IsParallel)
+@define_traitfn Parallel calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector) = begin
+    function calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector, !Parallel)
         return lshaped.c⋅x + sum([subproblem.π*subproblem(x) for subproblem in lshaped.subproblems])
     end
 
-    function calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector, IsParallel)
+    function calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector, Parallel)
         return lshaped.c⋅x + sum(fetch.([@spawnat w+1 calculate_subobjective(worker, x) for (w,worker) in enumerate(lshaped.subworkers)]))
     end
 end
 
-@define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems) = begin
-    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems, !IsParallel)
+@define_traitfn Parallel fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems) = begin
+    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems, !Parallel)
         for (i, submodel) in enumerate(scenarioproblems.problems)
             lshaped.subproblems[i](decision(lshaped))
             fill_submodel!(submodel, lshaped.subproblems[i])
         end
     end
 
-    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems, IsParallel)
+    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems, Parallel)
         j = 0
         for w in workers()
             n = remotecall_fetch((sw)->length(fetch(sw)), w, lshaped.subworkers[w-1])
@@ -160,8 +160,8 @@ end
     end
 end
 
-@define_traitfn IsParallel fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
-    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, !IsParallel)
+@define_traitfn Parallel fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
+    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, !Parallel)
         active_workers = Vector{Future}(undef, nsubproblems(scenarioproblems))
         j = 1
         for w in workers()
@@ -179,7 +179,7 @@ end
         map(wait, active_workers)
     end
 
-    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, IsParallel)
+    function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, Parallel)
         active_workers = Vector{Future}(undef, nworkers())
         for w in workers()
             active_workers[w-1] = remotecall(fill_submodels!,
