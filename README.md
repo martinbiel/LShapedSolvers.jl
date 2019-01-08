@@ -11,7 +11,7 @@
 ```julia
 julia> using LShapedSolvers
 
-julia> solve(sp,solver=LShapedSolver(:ls,ClpSolver()))
+julia> solve(sp,solver=LShapedSolver(ClpSolver()))
 L-Shaped Gap  Time: 0:00:01 (4 iterations)
   Objective:       -855.8333333333358
   Gap:             2.1229209144670507e-15
@@ -20,23 +20,16 @@ L-Shaped Gap  Time: 0:00:01 (4 iterations)
 
 ```
 
-Note, that an LP capable `AbstractMathProgSolver` is required to solve emerging subproblems. The following variants of the L-shaped algorithm are implemented:
+Note, that an LP capable `AbstractMathProgSolver` is required to solve emerging subproblems. Solver objects are obtained through the factory method `LShapedSolver`. The following variants of the L-shaped algorithm are implemented:
 
-1. L-shaped with multiple cuts (default): `LShapedSolver(:ls)`
-2. L-shaped with regularized decomposition: `LShapedSolver(:rd)`
-3. L-shaped with trust region: `LShapedSolver(:tr)`
-4. L-shaped with level sets: `LShapedSolver(:lv)`
+1. L-shaped with multiple cuts (default): `regularization = :none (default)`
+2. L-shaped with regularized decomposition: `regularization = :rd`
+3. L-shaped with trust region: `regularization = :tr`
+4. L-shaped with level sets: `regularization = :lv`
 
-Note, that `LShapedSolver(:rd)` and `LShapedSolver(:lv)` both require a QP capable `AbstractMathProgSolver` for the master problems. If not available, setting the `linearize` keyword to `true` is an alternative.
+Note, that `:rd` and `:lv` both require a QP capable `AbstractMathProgSolver` for the master problems. If not available, setting the `linearize` keyword to `true` is an alternative.
 
-In addition, there is a distributed variant of each algorithm:
-
-1. Distributed L-shaped with multiple cuts: `LShapedSolver(:dls)`
-2. Distributed L-shaped with regularized decomposition: `LShapedSolver(:drd)`
-3. Distributed L-shaped with trust region: `LShapedSolver(:dtr)`
-4. Distributed L-shaped with level sets: `LShapedSolver(:dlv)`
-
-which requires adding processes with `addprocs` prior to execution.
+In addition, there is a distributed variant of each algorithm, which requires adding processes with `addprocs` prior to execution. The distributed variants are obtained by supplying `distributed = true` to `LShapedSolver`.
 
 Each algorithm has a set of parameters that can be tuned prior to execution. For a list of these parameters and their default values, use `?` in combination with the solver object. For example, `?LShaped` gives the parameter list of the default L-shaped algorithm. For a list of all solvers and their handle names, use `?LShapedSolver`.
 

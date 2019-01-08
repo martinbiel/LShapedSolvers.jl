@@ -3,7 +3,7 @@
 
 Return an L-shaped algorithm object. Supply `lpsolver`, a MathProgBase solver capable of solving linear-quadratic problems.
 
-The available L-shaped regularizations are as follows
+The following L-shaped regularizations are available
 - `:none`:  L-shaped algorithm (default) ?LShaped for parameter descriptions.
 - `:rd`:  Regularized decomposition ?Regularized for parameter descriptions.
 - `:tr`:  Trust-region ?TrustRegion for parameter descriptions.
@@ -11,7 +11,6 @@ The available L-shaped regularizations are as follows
 
 ...
 # Arguments
-- `variant::Symbol = :ls`: L-shaped algorithm variant.
 - `lpsolver::AbstractMathProgSolver`: MathProgBase solver capable of solving linear (and possibly quadratic) programs.
 - `subsolver::AbstractMathProgSolver = lpsolver`: Optionally specify a different solver for the subproblems.
 - `projectionsolver::AbstractMathProgSolver = lpsolver`: Optionally specify a different solver for solving projection problems (only applies in level-set variants).
