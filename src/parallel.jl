@@ -13,37 +13,13 @@
 
     function init_subproblems!(lshaped::AbstractLShapedSolver{F,T,A,M,S}, subsolver::MPB.AbstractMathProgSolver, Parallel) where {F, T <: Real, A <: AbstractVector, M <: LQSolver, S <: LQSolver}
         @unpack κ = lshaped.parameters
-        # Partitioning
-        (jobsize, extra) = divrem(nscenarios(lshaped), nworkers())
-        # One extra to guarantee coverage
-        if extra > 0
-            jobsize += 1
-        end
-        # Partitioning of subproblem indices
-        (n, extra) = divrem(jobsize, lshaped.parameters.bundle)
-        if extra > 0
-            n += 1
-        end
-        start_id = 1
         # Load initial decision
         put!(lshaped.decisions, 1, lshaped.x)
         # Create subproblems on worker processes
-        start = 1
-        stop = jobsize
         active_workers = Vector{Future}(undef, nworkers())
-
         for w in workers()
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{F,T,A,S}}}(1), w)
-            active_workers[w-1] = load_worker!(scenarioproblems(lshaped.stochasticprogram), w, lshaped.subworkers[w-1], lshaped.x, start, stop, start_id, subsolver, lshaped.parameters.bundle)
-            if start > lshaped.nscenarios
-                continue
-            end
-            start += jobsize
-            stop += jobsize
-            stop = min(stop, lshaped.nscenarios)
-            start_id += n
-        end
-        for w in workers()
+            active_workers[w-1] = load_worker!(scenarioproblems(lshaped.stochasticprogram), w, lshaped.subworkers[w-1], lshaped.x, subsolver, lshaped.parameters.bundle)
             lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
             put!(lshaped.work[w-1], 1)
         end
@@ -80,21 +56,33 @@ end
     end
 
     function nbundles(lshaped::AbstractLShapedSolver, Parallel)
-        (jobsize, extra) = divrem(lshaped.nscenarios, nworkers())
-        if extra > 0
-            jobsize += 1
-        end
-        (n, extra) = divrem(jobsize, lshaped.parameters.bundle)
-        if extra > 0
-            n += 1
-        end
-        remainder = lshaped.nscenarios-(nworkers()-1)*jobsize
-        (bundlerem, extra) = divrem(remainder, lshaped.parameters.bundle)
-        if extra > 0
-            bundlerem += 1
-        end
-        return n*(nworkers()-1)+bundlerem
+        return nbundles(lshaped, scenarioproblems(lshaped.stochasticprogram))
     end
+end
+
+function nbundles(lshaped::AbstractLShapedSolver, sp::StochasticPrograms.ScenarioProblems)
+    (jobsize, extra) = divrem(lshaped.nscenarios, nworkers())
+    if extra > 0
+        jobsize += 1
+    end
+    (n, extra) = divrem(jobsize, lshaped.parameters.bundle)
+    if extra > 0
+        n += 1
+    end
+    remainder = lshaped.nscenarios-(nworkers()-1)*jobsize
+    (bundlerem, extra) = divrem(remainder, lshaped.parameters.bundle)
+    if extra > 0
+        bundlerem += 1
+    end
+    return n*(nworkers()-1)+bundlerem
+end
+
+function nbundles(lshaped::AbstractLShapedSolver, sp::StochasticPrograms.DScenarioProblems)
+    return sum([remotecall_fetch((sp,bundle)->begin
+        n = StochasticPrograms.nscenarios(fetch(sp))
+        (m, extra) = divrem(n, bundle)
+        return Int(m + (extra > 0))
+    end, w, sp[w-1], lshaped.parameters.bundle) for w in workers()])
 end
 
 @define_traitfn Parallel init_workers!(lshaped::AbstractLShapedSolver) = begin
@@ -277,18 +265,25 @@ function load_worker!(sp::StochasticPrograms.ScenarioProblems,
                       w::Integer,
                       worker::SubWorker,
                       x::AbstractVector,
-                      start::Integer,
-                      stop::Integer,
-                      start_id::Integer,
                       subsolver::MPB.AbstractMathProgSolver,
                       bundlesize::Integer)
-    problems = [sp.problems[i] for i = start:stop]
+    n = StochasticPrograms.nscenarios(sp)
+    (nscen, extra) = divrem(n, nworkers())
+    prev = [nscen + (extra + 2 - p > 0) for p in 2:(w-1)]
+    start = isempty(prev) ? 1 : sum(prev) + 1
+    stop = min(start + nscen + (extra + 2 - w > 0) - 1, n)
+    prev = [begin
+            jobsize = nscen + (extra + 2 - p > 0)
+            (n, extra) = divrem(jobsize, bundlesize)
+            n += (extra > 0)
+            end for p in 2:(w-1)]
+    start_id = isempty(prev) ? 1 : sum(prev) + 1
     πs = [probability(sp.scenarios[i]) for i = start:stop]
     return remotecall(init_subworker!,
                       w,
                       worker,
                       sp.parent,
-                      problems,
+                      sp.problems[start:stop],
                       πs,
                       x,
                       subsolver,
@@ -300,11 +295,14 @@ function load_worker!(sp::StochasticPrograms.DScenarioProblems,
                       w::Integer,
                       worker::SubWorker,
                       x::AbstractVector,
-                      start::Integer,
-                      stop::Integer,
-                      start_id::Integer,
                       subsolver::MPB.AbstractMathProgSolver,
                       bundlesize::Integer)
+    prev = [remotecall_fetch((sp,bundle)->begin
+        n = StochasticPrograms.nscenarios(fetch(sp))
+        (m, extra) = divrem(n, bundle)
+        return Int(m + (extra > 0))
+    end, p, sp[p-1], bundlesize) for p in 2:(w-1)]
+    start_id = isempty(prev) ? 1 : sum(prev)+1
     return remotecall(init_subworker!,
                       w,
                       worker,

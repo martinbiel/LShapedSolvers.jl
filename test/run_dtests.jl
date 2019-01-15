@@ -61,6 +61,17 @@ include("infeasible.jl")
             @test abs(optimal_value(sp) - Q̄)/(1e-10+abs(Q̄)) <= τ
             @test norm(optimal_decision(sp) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
         end
+        @testset "Distributed Bundled Single Node $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
+            sp_onenode = copy(sp)
+            add_scenarios!(sp_onenode, scenarios(sp), workers()[1])
+            optimize!(sp_onenode, solver=reference_solver)
+            x̄ = optimal_decision(sp_onenode)
+            Q̄ = optimal_value(sp_onenode)
+            add_params!(lsolver, bundle=2)
+            optimize!(sp, solver=lsolver)
+            @test abs(optimal_value(sp_onenode) - Q̄)/(1e-10+abs(Q̄)) <= τ
+            @test norm(optimal_decision(sp_onenode) - x̄)/(1e-10+norm(x̄)) <= sqrt(τ)
+        end
         @testset "Distributed $lsname Solver: $name" for (lsolver,lsname) in dlsolvers, (sp,name) in problems
             sp_nondist = copy(sp, procs = [1])
             add_scenarios!(sp_nondist, scenarios(sp))
