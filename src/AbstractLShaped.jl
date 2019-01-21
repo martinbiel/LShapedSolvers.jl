@@ -4,15 +4,15 @@ nscenarios(lshaped::AbstractLShapedSolver) = lshaped.nscenarios
 
 # Initialization #
 # ======================================================================== #
-function init!(lshaped::AbstractLShapedSolver,subsolver::MPB.AbstractMathProgSolver)
+function init!(lshaped::AbstractLShapedSolver, subsolver::SubSolver)
     # Initialize progress meter
     lshaped.progress.thresh = lshaped.parameters.τ
     # Cap bundle size
-    lshaped.parameters.bundle = min(lshaped.parameters.bundle,lshaped.nscenarios)
+    lshaped.parameters.bundle = min(lshaped.parameters.bundle, lshaped.nscenarios)
     # Prepare the master optimization problem
     prepare_master!(lshaped)
     # Finish initialization based on solver traits
-    init_subproblems!(lshaped,subsolver)
+    init_subproblems!(lshaped, subsolver)
     init_solver!(lshaped)
 end
 # ======================================================================== #

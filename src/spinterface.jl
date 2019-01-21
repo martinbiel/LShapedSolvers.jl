@@ -34,9 +34,9 @@ L-Shaped Gap  Time: 0:00:01 (4 iterations)
 :Optimal
 ```
 """
-mutable struct LShapedSolver <: AbstractStructuredSolver
+mutable struct LShapedSolver{S <: SubSolver} <: AbstractStructuredSolver
     lpsolver::MPB.AbstractMathProgSolver
-    subsolver::MPB.AbstractMathProgSolver
+    subsolver::S
     projectionsolver::MPB.AbstractMathProgSolver
     checkfeas::Bool
     regularization::Symbol
@@ -44,8 +44,8 @@ mutable struct LShapedSolver <: AbstractStructuredSolver
     crash::Crash.CrashMethod
     parameters::Dict{Symbol,Any}
 
-    function (::Type{LShapedSolver})(lpsolver::MPB.AbstractMathProgSolver; checkfeas::Bool = false, regularization = :none, distributed = false, crash::Crash.CrashMethod = Crash.None(), subsolver::MPB.AbstractMathProgSolver = lpsolver, projectionsolver::MPB.AbstractMathProgSolver = lpsolver, kwargs...)
-        return new(lpsolver, subsolver, projectionsolver, checkfeas, regularization, distributed, crash, Dict{Symbol,Any}(kwargs))
+    function (::Type{LShapedSolver})(lpsolver::MPB.AbstractMathProgSolver; checkfeas::Bool = false, regularization = :none, distributed = false, crash::Crash.CrashMethod = Crash.None(), subsolver::SubSolver = lpsolver, projectionsolver::MPB.AbstractMathProgSolver = lpsolver, kwargs...)
+        return new{typeof(subsolver)}(lpsolver, subsolver, projectionsolver, checkfeas, regularization, distributed, crash, Dict{Symbol,Any}(kwargs))
     end
 end
 
@@ -55,25 +55,25 @@ function StructuredModel(stochasticprogram::StochasticProgram, solver::LShapedSo
         if solver.distributed
             return DLShaped(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
         else
-            return LShaped(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
+            return LShaped(stochasticprogram, x₀, solver.lpsolver, get_solver(solver.subsolver), solver.checkfeas; solver.parameters...)
         end
     elseif solver.regularization == :rd
         if solver.distributed
             return DRegularized(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
         else
-            return Regularized(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
+            return Regularized(stochasticprogram, x₀, solver.lpsolver, get_solver(solver.subsolver), solver.checkfeas; solver.parameters...)
         end
     elseif solver.regularization == :tr
         if solver.distributed
             return DTrustRegion(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
         else
-            return TrustRegion(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.checkfeas; solver.parameters...)
+            return TrustRegion(stochasticprogram, x₀, solver.lpsolver, get_solver(solver.subsolver), solver.checkfeas; solver.parameters...)
         end
     elseif solver.regularization == :lv
         if solver.distributed
             return DLevelSet(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.projectionsolver, solver.checkfeas; solver.parameters...)
         else
-            return LevelSet(stochasticprogram, x₀, solver.lpsolver, solver.subsolver, solver.projectionsolver, solver.checkfeas; solver.parameters...)
+            return LevelSet(stochasticprogram, x₀, solver.lpsolver, get_solver(solver.subsolver), solver.projectionsolver, solver.checkfeas; solver.parameters...)
         end
     else
         error("Unknown L-shaped regularization procedure: ", solver.regularization)

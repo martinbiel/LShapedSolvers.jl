@@ -59,10 +59,10 @@ struct DLShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <:
 
     @implement_trait DLShaped Parallel
 
-    function (::Type{DLShaped})(stochasticprogram::StochasticProgram, x₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
+    function (::Type{DLShaped})(stochasticprogram::StochasticProgram, x₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return LShaped(stochasticprogram, x₀, mastersolver, subsolver; kw...)
+            return LShaped(stochasticprogram, x₀, mastersolver, get_solver(subsolver); kw...)
         end
         first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
         length(x₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(x₀), " should be ", first_stage.numCols)
@@ -76,7 +76,8 @@ struct DLShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <:
         SP = typeof(stochasticprogram)
         msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        solver_instance = get_solver(subsolver)
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(solver_instance)),typeof(solver_instance)}
         n = StochasticPrograms.nscenarios(stochasticprogram)
 
         lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
@@ -104,7 +105,7 @@ struct DLShaped{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <:
         return lshaped
     end
 end
-DLShaped(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DLShaped(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
+DLShaped(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, checkfeas::Bool; kw...) = DLShaped(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::DLShaped)()
     # Reset timer

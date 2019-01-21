@@ -80,10 +80,10 @@ struct DTrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
     @implement_trait DTrustRegion TR
     @implement_trait DTrustRegion Parallel
 
-    function (::Type{DTrustRegion})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
+    function (::Type{DTrustRegion})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return TrustRegion(stochasticprogram, ξ₀, mastersolver, subsolver; kw...)
+            return TrustRegion(stochasticprogram, ξ₀, mastersolver, get_solver(subsolver); kw...)
         end
         first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
         length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
@@ -98,7 +98,8 @@ struct DTrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
         SP = typeof(stochasticprogram)
         msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        solver_instance = get_solver(subsolver)
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(solver_instance)),typeof(solver_instance)}
         n = StochasticPrograms.nscenarios(stochasticprogram)
 
         lshaped = new{F,T,A,SP,M,S}(stochasticprogram,
@@ -130,7 +131,7 @@ struct DTrustRegion{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
         return lshaped
     end
 end
-DTrustRegion(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DTrustRegion(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
+DTrustRegion(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, checkfeas::Bool; kw...) = DTrustRegion(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, checkfeas; kw...)
 
 function (lshaped::DTrustRegion)()
     # Reset timer

@@ -1,3 +1,7 @@
+SubSolver = Union{MPB.AbstractMathProgSolver, Function}
+get_solver(subsolver::MPB.AbstractMathProgSolver) = subsolver
+get_solver(generator::Function)::MPB.AbstractMathProgSolver = generator()
+
 mutable struct LQSolver{M <: MPB.AbstractLinearQuadraticModel, S <: MPB.AbstractMathProgSolver}
     lqmodel::M
     optimsolver::S

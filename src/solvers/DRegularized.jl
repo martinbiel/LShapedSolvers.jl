@@ -81,10 +81,10 @@ struct DRegularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
     @implement_trait DRegularized RD
     @implement_trait DRegularized Parallel
 
-    function (::Type{DRegularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
+    function (::Type{DRegularized})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return Regularized(stochasticprogram, ξ₀, mastersolver, subsolver; kw...)
+            return Regularized(stochasticprogram, ξ₀, mastersolver, get_solver(subsolver); kw...)
         end
         first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
         length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
@@ -99,7 +99,8 @@ struct DRegularized{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, 
         SP = typeof(stochasticprogram)
         msolver = LQSolver(first_stage, mastersolver)
         M = typeof(msolver)
-        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        solver_instance = get_solver(subsolver)
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(solver_instance)),typeof(solver_instance)}
         n = StochasticPrograms.nscenarios(stochasticprogram)
 
         lshaped = new{F,T,A,SP,M,S}(stochasticprogram,

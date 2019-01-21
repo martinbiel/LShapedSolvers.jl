@@ -73,10 +73,10 @@ struct DLevelSet{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <
     @implement_trait DLevelSet LV
     @implement_trait DLevelSet Parallel
 
-    function (::Type{DLevelSet})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, projectionsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
+    function (::Type{DLevelSet})(stochasticprogram::StochasticProgram, ξ₀::AbstractVector, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, projectionsolver::MPB.AbstractMathProgSolver, F::Bool; kw...)
         if nworkers() == 1
             @warn "There are no worker processes, defaulting to serial version of algorithm"
-            return LevelSet(stochasticprogram, ξ₀, mastersolver, subsolver; kw...)
+            return LevelSet(stochasticprogram, ξ₀, mastersolver, get_solver(subsolver); kw...)
         end
         first_stage = StochasticPrograms.get_stage_one(stochasticprogram)
         length(ξ₀) != first_stage.numCols && error("Incorrect length of starting guess, has ", length(ξ₀), " should be ", first_stage.numCols)
@@ -93,7 +93,8 @@ struct DLevelSet{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <
         psolver = LQSolver(first_stage, projectionsolver)
         M = typeof(msolver)
         P = typeof(psolver)
-        S = LQSolver{typeof(MPB.LinearQuadraticModel(subsolver)),typeof(subsolver)}
+        solver_instance = get_solver(subsolver)
+        S = LQSolver{typeof(MPB.LinearQuadraticModel(solver_instance)),typeof(solver_instance)}
         n = StochasticPrograms.nscenarios(stochasticprogram)
 
         lshaped = new{F,T,A,SP,M,P,S}(stochasticprogram,
@@ -125,7 +126,7 @@ struct DLevelSet{F, T <: Real, A <: AbstractVector, SP <: StochasticProgram, M <
         return lshaped
     end
 end
-DLevelSet(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::MPB.AbstractMathProgSolver, projectionsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DLevelSet(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, projectionsolver, checkfeas; kw...)
+DLevelSet(stochasticprogram::StochasticProgram, mastersolver::MPB.AbstractMathProgSolver, subsolver::SubSolver, projectionsolver::MPB.AbstractMathProgSolver, checkfeas::Bool; kw...) = DLevelSet(stochasticprogram, rand(decision_length(stochasticprogram)), mastersolver, subsolver, projectionsolver, checkfeas; kw...)
 
 function (lshaped::DLevelSet)()
     # Reset timer
