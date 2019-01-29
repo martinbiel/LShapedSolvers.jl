@@ -20,8 +20,6 @@
         for w in workers()
             lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{F,T,A,S}}}(1), w)
             active_workers[w-1] = load_worker!(scenarioproblems(lshaped.stochasticprogram), w, lshaped.subworkers[w-1], lshaped.x, subsolver, lshaped.parameters.bundle)
-            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(round(Int,10/κ)), w)
-            put!(lshaped.work[w-1], 1)
         end
         # Prepare memory
         push!(lshaped.subobjectives, zeros(nbundles(lshaped)))
@@ -32,6 +30,11 @@
         lshaped.parameters.log = log_val
         # Ensure initialization is finished
         map(wait, active_workers)
+        # Prepare work channels
+        for w in workers()
+            lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(10), w)
+            put!(lshaped.work[w-1], 1)
+        end
         return lshaped
     end
 end
@@ -342,7 +345,7 @@ function work_on_subproblems!(subworker::SubWorker{F,T,A,S},
        # Workers has nothing do to, return.
        return
     end
-    while true
+    @sync while true
         t::Int = try
             wait(work)
             take!(work)
@@ -358,7 +361,7 @@ function work_on_subproblems!(subworker::SubWorker{F,T,A,S},
         end
         x::A = fetch(decisions,t)
         if bundlesize == 1
-            @sync for subproblem in subproblems
+            for subproblem in subproblems
                 @async begin
                     update_subproblem!(subproblem, x)
                     cut = subproblem()
@@ -368,7 +371,7 @@ function work_on_subproblems!(subworker::SubWorker{F,T,A,S},
             end
         else
             njobs = ceil(Int, length(subproblems)/bundlesize)
-            @sync for i = 1:njobs
+            for i = 1:njobs
                 @async begin
                     cut_bundle = CutBundle(T)
                     for subproblem in subproblems[(i-1)*bundlesize+1:min(i*bundlesize,length(subproblems))]
