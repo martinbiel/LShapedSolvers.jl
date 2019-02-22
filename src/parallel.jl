@@ -16,20 +16,19 @@
         # Load initial decision
         put!(lshaped.decisions, 1, lshaped.x)
         # Create subproblems on worker processes
-        active_workers = Vector{Future}(undef, nworkers())
-        for w in workers()
-            lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{F,T,A,S}}}(1), w)
-            active_workers[w-1] = load_worker!(scenarioproblems(lshaped.stochasticprogram), w, lshaped.subworkers[w-1], lshaped.x, subsolver, lshaped.parameters.bundle)
+        @sync begin
+            for w in workers()
+                lshaped.subworkers[w-1] = RemoteChannel(() -> Channel{Vector{SubProblem{F,T,A,S}}}(1), w)
+                @async load_worker!(scenarioproblems(lshaped.stochasticprogram), w, lshaped.subworkers[w-1], lshaped.x, subsolver, lshaped.parameters.bundle)
+            end
+            # Prepare memory
+            push!(lshaped.subobjectives, zeros(nbundles(lshaped)))
+            push!(lshaped.finished, 0)
+            log_val = lshaped.parameters.log
+            lshaped.parameters.log = false
+            log!(lshaped)
+            lshaped.parameters.log = log_val
         end
-        # Prepare memory
-        push!(lshaped.subobjectives, zeros(nbundles(lshaped)))
-        push!(lshaped.finished, 0)
-        log_val = lshaped.parameters.log
-        lshaped.parameters.log = false
-        log!(lshaped)
-        lshaped.parameters.log = log_val
-        # Ensure initialization is finished
-        map(wait, active_workers)
         # Prepare work channels
         for w in workers()
             lshaped.work[w-1] = RemoteChannel(() -> Channel{Int}(10), w)
@@ -88,10 +87,8 @@ end
 
 @define_traitfn Parallel close_workers!(lshaped::AbstractLShapedSolver) = begin
     function close_workers!(lshaped::AbstractLShapedSolver, Parallel)
-        @async begin
-            map((w)->close(w), lshaped.work)
-            map(wait, lshaped.active_workers)
-        end
+        map((w)->close(w), lshaped.work)
+        map(wait, lshaped.active_workers)
         return nothing
     end
 end
@@ -102,7 +99,13 @@ end
     end
 
     function calculate_objective_value(lshaped::AbstractLShapedSolver, x::AbstractVector, Parallel)
-        return lshaped.c⋅x + sum(fetch.([@spawnat w+1 calculate_subobjective(worker, x) for (w,worker) in enumerate(lshaped.subworkers)]))
+        Qs = Vector{Float64}(undef, nworkers())
+        @sync begin
+            for (w,worker) in enumerate(lshaped.subworkers)
+                @async Qs[w] = remotecall_fetch(calculate_subobjective, w+1, worker, x)
+            end
+        end
+        return lshaped.c⋅x + sum(Qs)
     end
 end
 
@@ -116,53 +119,57 @@ end
 
     function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.ScenarioProblems, Parallel)
         j = 0
-        for w in workers()
-            n = remotecall_fetch((sw)->length(fetch(sw)), w, lshaped.subworkers[w-1])
-            for i = 1:n
-                fill_submodel!(scenarioproblems.problems[i+j],remotecall_fetch((sw,i,x)->begin
-                                                                               sp = fetch(sw)[i]
-                                                                               sp(x)
-                                                                               get_solution(sp)
-                                                                               end,
-                                                                               w,
-                                                                               lshaped.subworkers[w-1],
-                                                                               i,
-                                                                               decision(lshaped))...)
+        @sync begin
+            for w in workers()
+                n = remotecall_fetch((sw)->length(fetch(sw)), w, lshaped.subworkers[w-1])
+                for i = 1:n
+                    k = i+j
+                    @async fill_submodel!(scenarioproblems.problems[k],remotecall_fetch((sw,i,x)->begin
+                        sp = fetch(sw)[i]
+                        sp(x)
+                        get_solution(sp)
+                    end,
+                    w,
+                    lshaped.subworkers[w-1],
+                    i,
+                    decision(lshaped))...)
+                end
+                j += n
             end
-            j += n
         end
     end
 end
 
 @define_traitfn Parallel fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems) = begin
     function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, !Parallel)
-        active_workers = Vector{Future}(undef, nsubproblems(scenarioproblems))
-        j = 1
-        for w in workers()
-            n = remotecall_fetch((sp)->length(fetch(sp).problems), w, scenarioproblems[w-1])
-            for i in 1:n
-                lshaped.subproblems[j](decision(lshaped))
-                active_workers[j] = remotecall((sp,i,x,μ,λ,C) -> fill_submodel!(fetch(sp).problems[i],x,μ,λ,C),
-                                               w,
-                                               scenarioproblems[w-1],
-                                               i,
-                                               get_solution(lshaped.subproblems[j])...)
-                j += 1
+        j = 0
+        @sync begin
+            for w in workers()
+                n = remotecall_fetch((sp)->length(fetch(sp).problems), w, scenarioproblems[w-1])
+                for i in 1:n
+                    k = i+j
+                    lshaped.subproblems[k](decision(lshaped))
+                    @async remotecall_fetch((sp,i,x,μ,λ,C) -> fill_submodel!(fetch(sp).problems[i],x,μ,λ,C),
+                                            w,
+                                            scenarioproblems[w-1],
+                                            i,
+                                            get_solution(lshaped.subproblems[k])...)
+                end
+                j += n
             end
         end
-        map(wait, active_workers)
     end
 
     function fill_submodels!(lshaped::AbstractLShapedSolver, scenarioproblems::StochasticPrograms.DScenarioProblems, Parallel)
-        active_workers = Vector{Future}(undef, nworkers())
-        for w in workers()
-            active_workers[w-1] = remotecall(fill_submodels!,
-                                             w,
-                                             lshaped.subworkers[w-1],
-                                             decision(lshaped),
-                                             scenarioproblems[w-1])
+        @sync begin
+            for w in workers()
+                @async remotecall_fetch(fill_submodels!,
+                                        w,
+                                        lshaped.subworkers[w-1],
+                                        decision(lshaped),
+                                        scenarioproblems[w-1])
+            end
         end
-        map(wait, active_workers)
     end
 end
 
@@ -264,16 +271,16 @@ function load_worker!(sp::StochasticPrograms.ScenarioProblems,
             end for p in 2:(w-1)]
     start_id = isempty(prev) ? 1 : sum(prev) + 1
     πs = [probability(sp.scenarios[i]) for i = start:stop]
-    return remotecall(init_subworker!,
-                      w,
-                      worker,
-                      sp.parent,
-                      sp.problems[start:stop],
-                      πs,
-                      x,
-                      subsolver,
-                      bundlesize,
-                      start_id)
+    return remotecall_fetch(init_subworker!,
+                            w,
+                            worker,
+                            sp.parent,
+                            sp.problems[start:stop],
+                            πs,
+                            x,
+                            subsolver,
+                            bundlesize,
+                            start_id)
 end
 
 function load_worker!(sp::StochasticPrograms.DScenarioProblems,
@@ -284,14 +291,14 @@ function load_worker!(sp::StochasticPrograms.DScenarioProblems,
                       bundlesize::Integer)
     prev = [ceil(Int,sp.scenario_distribution[p-1]/bundlesize) for p in 2:(w-1)]
     start_id = isempty(prev) ? 1 : sum(prev)+1
-    return remotecall(init_subworker!,
-                      w,
-                      worker,
-                      sp[w-1],
-                      x,
-                      subsolver,
-                      bundlesize,
-                      start_id)
+    return remotecall_fetch(init_subworker!,
+                            w,
+                            worker,
+                            sp[w-1],
+                            x,
+                            subsolver,
+                            bundlesize,
+                            start_id)
 end
 
 function init_subworker!(subworker::SubWorker{F,T,A,S},
