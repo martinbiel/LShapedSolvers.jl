@@ -56,9 +56,6 @@ function prepare_master!(lshaped::AbstractLShapedSolver{true})
     # θs
     for i = 1:nbundles(lshaped)
         MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,0.0)
-        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-            updatemodel!(lshaped.mastersolver.lqmodel)
-        end
         push!(lshaped.mastervector,-1e10)
         push!(lshaped.θs,-1e10)
     end
@@ -68,9 +65,6 @@ function prepare_master!(lshaped::AbstractLShapedSolver{false})
     # θs
     for i = 1:nbundles(lshaped)
         MPB.addvar!(lshaped.mastersolver.lqmodel,-Inf,Inf,1.0)
-        if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-            updatemodel!(lshaped.mastersolver.lqmodel)
-        end
         push!(lshaped.mastervector,-1e10)
         push!(lshaped.θs,-1e10)
     end
@@ -241,9 +235,6 @@ function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{OptimalityCut}
     # Add optimality cut
     process_cut!(lshaped, cut)
     MPB.addconstr!(lshaped.mastersolver.lqmodel, lowlevel(cut)...)
-    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-        updatemodel!(lshaped.mastersolver.lqmodel)
-    end
     push!(lshaped.cuts, cut)
     return true
 end
@@ -256,9 +247,6 @@ function add_cut!(lshaped::AbstractLShapedSolver, cut::HyperPlane{FeasibilityCut
     # Add feasibility cut
     process_cut!(lshaped, cut)
     MPB.addconstr!(lshaped.mastersolver.lqmodel, lowlevel(cut)...)
-    if typeof(lshaped.mastersolver.optimsolver) == GurobiSolver
-        updatemodel!(lshaped.mastersolver.lqmodel)
-    end
     push!(lshaped.cuts, cut)
     return true
 end
